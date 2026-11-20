@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>우리집 대시보드</title>
+<meta name="description" content="아이들 케어, 내 업무, 사업, 가계부를 한 화면에 모은 가족 대시보드">
+<meta name="theme-color" content="#ffe7f1">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jua&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="blobs" aria-hidden="true">
+  <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
+</div>
+
+<header class="app-header">
+  <div class="wrap top-row">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">🌷</span>
+      <span class="brand-text">우리집 대시보드</span>
+    </div>
+    <button class="icon-btn" id="settingsBtn" type="button" aria-label="설정 열기" title="설정">⚙️</button>
+  </div>
+
+  <div class="wrap clock-row">
+    <section class="clock-card card" aria-label="오늘 날짜와 시간">
+      <p class="date-line" id="todayDate">불러오는 중…</p>
+      <p class="clock-line">
+        <span class="clock-ampm" id="clockAmpm">오전</span>
+        <span class="clock-time" id="clockTime">--:--</span>
+      </p>
+      <p class="clock-sub" id="clockSub">한국 시간</p>
+    </section>
+
+    <section class="weather-card card" id="weatherCard" aria-label="통영 날씨">
+      <div class="weather-main" id="weatherMain">
+        <p class="weather-loading">🌤️ 날씨를 불러오는 중…</p>
+      </div>
+      <div class="forecast" id="forecastRow" aria-label="주간 예보"></div>
+    </section>
+  </div>
+</header>
+
+<nav class="tabs-wrap" aria-label="대시보드 탭">
+  <div class="wrap tabs" role="tablist">
+    <button class="tab is-active" role="tab" id="tab-home" data-tab="home" aria-selected="true" aria-controls="panel-home">🏠 대시보드</button>
+    <button class="tab" role="tab" id="tab-kids" data-tab="kids" aria-selected="false" aria-controls="panel-kids">🧒 아이들 케어</button>
+    <button class="tab" role="tab" id="tab-work" data-tab="work" aria-selected="false" aria-controls="panel-work">💼 내 업무</button>
+    <button class="tab" role="tab" id="tab-biz" data-tab="biz" aria-selected="false" aria-controls="panel-biz">📦 에이치엠유통</button>
+    <button class="tab" role="tab" id="tab-money" data-tab="money" aria-selected="false" aria-controls="panel-money">💰 집 가계부</button>
+  </div>
+</nav>
+
+<main class="wrap main">
+
+  <!-- ===== 대시보드 ===== -->
+  <section class="panel" id="panel-home" role="tabpanel" aria-labelledby="tab-home">
+    <div class="hero card">
+      <div class="hero-top">
+        <span class="pill pill-pink">⏰ <span data-goal-label>출발</span>까지</span>
+        <span class="hero-hint" id="heroHint">오늘의 준비 상황</span>
+      </div>
+      <p class="countdown" id="countdown">--</p>
+      <div class="progress-line">
+        <div class="bar bar-lg" role="progressbar" aria-label="전체 진행률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="overallBar">
+          <span id="overallFill" style="width:0%"></span>
+        </div>
+        <span class="pct" id="overallPct">0%</span>
+      </div>
+      <div class="hero-foot">
+        <span id="overallCount">0 / 0 완료</span>
+        <span class="dot-sep" aria-hidden="true">·</span>
+        <span id="overallBreak"></span>
+      </div>
+    </div>
+
+    <div class="grid">
+      <article class="card summary" aria-labelledby="home-kids-h">
+        <header class="summary-head">
+          <h2 id="home-kids-h">🧒 아이들 케어</h2>
+          <button class="link-btn" type="button" data-goto="kids">전체 보기</button>
+        </header>
+        <div id="homeKids" class="summary-body"></div>
+      </article>
+
+      <article class="card summary" aria-labelledby="home-work-h">
+        <header class="summary-head">
+          <h2 id="home-work-h">💼 내 업무</h2>
+          <button class="link-btn" type="button" data-goto="work">전체 보기</button>
+        </header>
+        <div id="homeWork" class="summary-body"></div>
+      </article>
+
+      <article class="card summary" aria-labelledby="home-biz-h">
+        <header class="summary-head">
+          <h2 id="home-biz-h">📦 에이치엠유통</h2>
+          <button class="link-btn" type="button" data-goto="biz">전체 보기</button>
+        </header>
+        <div id="homeBiz" class="summary-body"></div>
+      </article>
+
+      <article class="card summary" aria-labelledby="home-money-h">
+        <header class="summary-head">
+          <h2 id="home-money-h">💰 집 가계부</h2>
+          <button class="link-btn" type="button" data-goto="money">전체 보기</button>
+        </header>
+        <div id="homeMoney" class="summary-body"></div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ===== 아이들 케어 ===== -->
+  <section class="panel" id="panel-kids" role="tabpanel" aria-labelledby="tab-kids" hidden>
+    <div class="panel-head">
+      <div>
+        <h2 class="panel-title">🧒 아이들 케어</h2>
+        <p class="panel-desc">카드를 누르면 완료 처리돼요. ✎ 로 수정, 🗑 로 삭제할 수 있어요.</p>
+      </div>
+      <div class="seg" id="kidsSwitch" role="group" aria-label="아이 선택">
+        <button type="button" class="seg-btn is-active" data-kid="c5">초5</button>
+        <button type="button" class="seg-btn" data-kid="c3">초3</button>
+        <button type="button" class="seg-btn" data-kid="both">둘 다</button>
+      </div>
+    </div>
+    <div id="kidsBody" class="kids-body"></div>
+  </section>
+
+  <!-- ===== 내 업무 ===== -->
+  <section class="panel" id="panel-work" role="tabpanel" aria-labelledby="tab-work" hidden>
+    <div class="panel-head">
+      <div>
+        <h2 class="panel-title">💼 내 업무</h2>
+        <p class="panel-desc">오늘 할 일과 이번 주 할 일을 나눠서 관리해요.</p>
+      </div>
+      <button class="btn btn-pink" type="button" data-add-todo="work">＋ 할 일 추가</button>
+    </div>
+    <div class="two-col">
+      <div class="col">
+        <div class="card list-card" id="workToday"></div>
+        <div class="card list-card" id="workWeek"></div>
+      </div>
+      <div class="col">
+        <div class="card memo-card" id="workMemo"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 에이치엠유통 ===== -->
+  <section class="panel" id="panel-biz" role="tabpanel" aria-labelledby="tab-biz" hidden>
+    <div class="panel-head">
+      <div>
+        <h2 class="panel-title">📦 에이치엠유통</h2>
+        <p class="panel-desc">사업 관련 할 일과 챙길 일정을 모아 둬요.</p>
+      </div>
+      <button class="btn btn-mint" type="button" data-add-todo="biz">＋ 할 일 추가</button>
+    </div>
+    <div class="two-col">
+      <div class="col">
+        <div class="card list-card" id="bizToday"></div>
+        <div class="card list-card" id="bizWeek"></div>
+      </div>
+      <div class="col">
+        <div class="card memo-card" id="bizMemo"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 집 가계부 ===== -->
+  <section class="panel" id="panel-money" role="tabpanel" aria-labelledby="tab-money" hidden>
+    <div class="panel-head">
+      <div>
+        <h2 class="panel-title">💰 집 가계부</h2>
+        <p class="panel-desc">이번 달 예산과 수입·지출을 기록해요.</p>
+      </div>
+      <div class="month-picker">
+        <button class="icon-btn sm" type="button" id="prevMonth" aria-label="이전 달">◀</button>
+        <strong id="monthLabel">2026년 11월</strong>
+        <button class="icon-btn sm" type="button" id="nextMonth" aria-label="다음 달">▶</button>
+      </div>
+    </div>
+
+    <div class="money-top">
+      <div class="card budget-card" id="budgetCard"></div>
+      <div class="card add-card" id="moneyForm"></div>
+    </div>
+
+    <div class="card cat-card" id="catCard"></div>
+    <div class="card list-card" id="moneyList"></div>
+  </section>
+</main>
+
+<footer class="app-foot">
+  <span>입력한 내용은 이 기기 브라우저에 자동 저장돼요 · ⚙️ 에서 백업/복원</span>
+</footer>
+
+<!-- ===== 공통 모달 ===== -->
+<dialog id="modal" class="modal">
+  <form method="dialog" class="modal-inner" id="modalForm">
+    <header class="modal-head">
+      <h2 id="modalTitle">제목</h2>
+      <button class="icon-btn sm" type="button" id="modalClose" aria-label="닫기">✕</button>
+    </header>
+    <div class="modal-body" id="modalBody"></div>
+    <footer class="modal-foot">
+      <button class="btn btn-ghost" type="button" id="modalCancel">취소</button>
+      <button class="btn btn-pink" type="submit" id="modalSubmit">저장</button>
+    </footer>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
