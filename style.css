@@ -261,7 +261,7 @@ h3 { font-size: 14px; margin: 0; letter-spacing: -0.2px; }
 .hero-foot b { color: var(--ink-2); }
 
 /* ---------- 홈 요약 ---------- */
-.grid { margin-top: 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(255px, 1fr)); gap: 14px; align-items: start; }
+.grid { margin-top: 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(255px, 1fr)); gap: 14px; }
 .summary { padding: 16px 16px 14px; display: flex; flex-direction: column; gap: 12px; }
 .summary-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .summary-body { display: flex; flex-direction: column; gap: 10px; font-size: 13px; color: var(--ink-2); }

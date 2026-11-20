@@ -364,6 +364,12 @@
     const budget = Number(state.money.budgets[m] || 0);
     const remain = budget - t.expense;
     const usedPct = budget > 0 ? Math.min(100, Math.round((t.expense / budget) * 100)) : 0;
+    if (!budget && !t.rows.length) {
+      $('#homeMoney').innerHTML = `
+        <div class="empty-box">예산을 설정하면 이번 달 지출과 남은 금액을 한눈에 보여드려요.</div>
+        <button type="button" class="link-btn" data-goto="money">＋ 예산 설정하러 가기</button>`;
+      return;
+    }
     $('#homeMoney').innerHTML = `
       <div>
         <p class="money-big">${won(t.expense)}<small>이번 달 지출</small></p>
