@@ -579,7 +579,7 @@
       <div class="bar ${remain < 0 ? 'pink' : ''}" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><span style="width:${pct}%"></span></div>
       <div class="budget-meta">
         <span>${budget > 0 ? `예산 ${won(budget)}` : '예산을 설정해 보세요'}</span>
-        <span>${budget > 0 ? (remain >= 0 ? `남은 금액 <b>${won(remain)}</b>` : `<b class="over">${won(-remain)} 초과</b>`) : `기록 <b>${t.rows.length}건</b>`}</span>
+        <span>${budget > 0 ? (remain >= 0 ? `남은 금액 <b>${won(remain)}</b>` : `<b class="over">${won(-remain)} 초과</b>`) : ''}</span>
       </div>
       <div class="money-rows">
         <span>수입 <b>${won(t.income)}</b></span>
