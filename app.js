@@ -567,13 +567,13 @@
         <button type="button" class="link-btn" data-set-budget>예산 ${budget > 0 ? '수정' : '설정'}</button>
       </div>
       <div class="budget-line">
-        <span class="money-big">${budget > 0 ? won(t.expense) : won(t.income)}</span>
-        <small class="hint">${budget > 0 ? '지출' : '수입'}</small>
+        <span class="money-big">${won(t.expense)}</span>
+        <small class="hint">이번 달 지출</small>
       </div>
       <div class="bar ${remain < 0 ? 'pink' : ''}" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><span style="width:${pct}%"></span></div>
       <div class="budget-meta">
         <span>${budget > 0 ? `예산 ${won(budget)}` : '예산을 설정해 보세요'}</span>
-        <span>${budget > 0 ? (remain >= 0 ? `남은 금액 <b>${won(remain)}</b>` : `<b class="over">${won(-remain)} 초과</b>`) : `수입 <b>${won(t.income)}</b>`}</span>
+        <span>${budget > 0 ? (remain >= 0 ? `남은 금액 <b>${won(remain)}</b>` : `<b class="over">${won(-remain)} 초과</b>`) : `기록 <b>${t.rows.length}건</b>`}</span>
       </div>
       <div class="money-rows">
         <span>수입 <b>${won(t.income)}</b></span>
@@ -629,7 +629,7 @@
         const dt = new Date(d + 'T00:00:00+09:00');
         const head = `${dt.getMonth() + 1}월 ${dt.getDate()}일 (${'일월화수목금토'[dt.getDay()]})`;
         return `<div class="day-group">
-          <div class="day-head"><span>${head}</span><span>${dayInc ? '+' + won(dayInc) : ''} ${dayExp ? '-' + won(dayExp) : ''}</span></div>
+          <div class="day-head"><span>${head}</span><span>${[dayInc ? '+' + won(dayInc) : '', dayExp ? '-' + won(dayExp) : ''].filter(Boolean).join(' · ')}</span></div>
           ${list.map((e) => `
             <div class="entry">
               <span class="entry-cat">${escapeHtml(e.category)}</span>
@@ -647,7 +647,7 @@
   /* ---------- 탭 전환 ---------- */
   const RENDERERS = { home: renderHome, kids: renderKids, work: renderWorkAll, biz: renderBizAll, money: renderMoney };
 
-  function showTab(tab) {
+  function showTab(tab, opts) {
     if (!RENDERERS[tab]) tab = 'home';
     state.ui.tab = tab;
     save();
@@ -656,9 +656,17 @@
       b.classList.toggle('is-active', on);
       b.setAttribute('aria-selected', on ? 'true' : 'false');
       b.tabIndex = on ? 0 : -1;
+      if (on && b.scrollIntoView) {
+        try { b.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' }); } catch (e) { /* noop */ }
+      }
     });
     $$('.panel').forEach((p) => { p.hidden = p.id !== 'panel-' + tab; });
     RENDERERS[tab]();
+    if (!opts || opts.hash !== false) {
+      try {
+        if (location.hash !== '#' + tab) history.replaceState(null, '', '#' + tab);
+      } catch (e) { /* noop */ }
+    }
   }
 
   function renderAll() {
@@ -1117,7 +1125,12 @@
 
   /* ---------- 시작 ---------- */
   renderAll();
-  showTab(state.ui.tab || 'home');
+  const hashTab = (location.hash || '').replace('#', '');
+  showTab(RENDERERS[hashTab] ? hashTab : (state.ui.tab || 'home'));
+  window.addEventListener('hashchange', () => {
+    const t = (location.hash || '').replace('#', '');
+    if (RENDERERS[t] && t !== state.ui.tab) showTab(t);
+  });
   loadWeather();
 
   setInterval(() => { renderClock(); renderCountdown(); }, 1000 * 20);

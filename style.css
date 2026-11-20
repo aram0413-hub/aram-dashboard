@@ -539,9 +539,9 @@ h3 { font-size: 14px; margin: 0; letter-spacing: -0.2px; }
   .add-step { min-height: 104px; }
   .forecast { gap: 4px; }
   .fc-day { padding: 6px 2px 5px; }
-  .fc-name { font-size: 10px; }
-  .fc-ico { font-size: 15px; }
-  .fc-temp { font-size: 9.5px; }
+  .fc-name { font-size: 10.5px; }
+  .fc-ico { font-size: 16px; }
+  .fc-temp { font-size: 10px; }
   .pm-chips { margin-left: 0; }
   .panel-title { font-size: 19px; }
   .add-form { grid-template-columns: minmax(0, 1fr); }
@@ -557,6 +557,7 @@ h3 { font-size: 14px; margin: 0; letter-spacing: -0.2px; }
   .countdown { font-size: 26px; }
   .tab { font-size: 12px; padding: 8px 10px; }
   .kid-progress { min-width: 100%; }
+  .fc-temp b { display: block; }
 }
 
 @media (min-width: 1180px) {
