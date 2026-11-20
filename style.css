@@ -261,7 +261,7 @@ h3 { font-size: 14px; margin: 0; letter-spacing: -0.2px; }
 .hero-foot b { color: var(--ink-2); }
 
 /* ---------- 홈 요약 ---------- */
-.grid { margin-top: 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(255px, 1fr)); gap: 14px; }
+.grid { margin-top: 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(255px, 1fr)); gap: 14px; align-items: start; }
 .summary { padding: 16px 16px 14px; display: flex; flex-direction: column; gap: 12px; }
 .summary-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .summary-body { display: flex; flex-direction: column; gap: 10px; font-size: 13px; color: var(--ink-2); }
@@ -348,10 +348,10 @@ h3 { font-size: 14px; margin: 0; letter-spacing: -0.2px; }
 .step .step-check {
   position: absolute; top: 6px; right: 6px;
   width: 24px; height: 24px; border-radius: 50%;
-  display: grid; place-items: center; font-size: 13px;
-  background: #f5f2fb; color: #c9c3dd;
+  display: grid; place-items: center; font-size: 13px; font-weight: 900;
+  background: #fff; border: 1.6px solid #e7e0f4; color: transparent;
 }
-.step.is-done .step-check { background: var(--mint); color: #fff; box-shadow: 0 3px 8px rgba(79, 209, 174, .4); }
+.step.is-done .step-check { background: var(--mint); border-color: var(--mint); color: #fff; box-shadow: 0 3px 8px rgba(79, 209, 174, .4); }
 .step.is-done .step-title { color: var(--mint-deep); }
 
 .step-tools { position: absolute; bottom: 5px; right: 5px; display: flex; gap: 2px; opacity: 0; transition: opacity .15s; }

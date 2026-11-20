@@ -938,10 +938,9 @@
     const seg = t.closest('#kidsSwitch .seg-btn');
     if (seg) { state.ui.kidsView = seg.dataset.kid; save(); renderKids(); return; }
 
-    // 단계 완료 토글
+    // 단계 완료 토글 (수정·삭제 버튼은 제외)
     const step = t.closest('[data-toggle-step]');
-    if (step) {
-      if (t.closest('[data-edit-step]') || t.closest('[data-del-step]')) return;
+    if (step && !t.closest('[data-edit-step]') && !t.closest('[data-del-step]')) {
       const { kid, group, id } = step.dataset;
       const item = (state.kids[kid][group] || []).find((s) => s.id === id);
       if (!item) return;
