@@ -8,7 +8,7 @@
 
   const STORAGE_KEY = 'uri-jip-dashboard.v1';
   const KIDS = ['c5', 'c3'];
-  const EXPENSE_CATS = ['식비', '생활', '교육', '교통', '의료', '주거', '문화', '기타'];
+  const EXPENSE_CATS = ['식비', '외식·카페', '마트·식자재', '편의점', '생활', '교통', '주유', '의료·약국', '여가·아이', '교육', '문화', '통신·구독', '온라인쇼핑', '주거', '기타'];
   const INCOME_CATS = ['급여', '부수입', '사업', '기타'];
   const PRIORITY = { high: '중요', mid: '보통', low: '여유' };
   const PRIORITY_ORDER = { high: 0, mid: 1, low: 2 };
@@ -119,8 +119,27 @@
     });
     s.money.entries = Array.isArray((saved.money || {}).entries) ? saved.money.entries : [];
     s.money.budgets = (saved.money && saved.money.budgets) || {};
-    s.money.entries = s.money.entries.map((e) => ({ id: e.id || uid(), date: e.date || todayISO(), type: e.type === 'income' ? 'income' : 'expense', category: e.category || '기타', text: e.text || '', amount: Number(e.amount) || 0 }));
+    s.money.entries = s.money.entries.map(normalizeEntry).filter(Boolean);
     return s;
+  }
+
+  /* 가계부 한 줄 맞추기 (카드 내역 파일에서 온 card·time·discount 도 함께 보존) */
+  function normalizeEntry(e) {
+    if (!e || typeof e !== 'object') return null;
+    const raw = String(e.amount == null ? 0 : e.amount).replace(/[^0-9.-]/g, '');
+    const amount = Number(raw);
+    const row = {
+      id: e.id || uid(),
+      date: String(e.date || '').slice(0, 10) || todayISO(),
+      type: e.type === 'income' ? 'income' : 'expense',
+      category: e.category || '기타',
+      text: e.text || '',
+      amount: Number.isFinite(amount) ? amount : 0
+    };
+    if (e.card) row.card = String(e.card).slice(0, 24);
+    if (e.time) row.time = String(e.time).slice(0, 5);
+    if (Number(e.discount)) row.discount = Number(e.discount) || 0;
+    return row;
   }
 
   function load() {
@@ -641,7 +660,7 @@
               <span class="entry-cat">${escapeHtml(e.category)}</span>
               <div class="entry-main">
                 <span class="entry-memo">${escapeHtml(e.text || e.category)}</span>
-                <span class="entry-date">${e.type === 'income' ? '수입' : '지출'}</span>
+                <span class="entry-date">${[e.card, e.type === 'income' ? '수입' : '지출'].filter(Boolean).map(escapeHtml).join(' · ')}</span>
               </div>
               <span class="entry-amount ${e.type}">${e.type === 'income' ? '+' : '-'}${won(e.amount)}</span>
               <button type="button" class="entry-del" data-del-entry="${e.id}" aria-label="삭제">🗑</button>
@@ -845,6 +864,70 @@
     });
   }
 
+  /* 카드 내역 파일 불러오기 — 기존 기록은 남기고 새 내역만 더함 */
+  const entryKey = (e) => [e.date, e.time || '', e.type || 'expense', e.card || '', e.category || '', e.text || '', Number(e.amount) || 0].join('|');
+
+  const entryId = (date, time) => 'hc' + String(date || '').replace(/-/g, '') + String(time || '').replace(/:/g, '') + Math.random().toString(36).slice(2, 5);
+
+  function importMoneyFile(input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    input.value = '';
+    const reader = new FileReader();
+    reader.onerror = () => toast('파일을 읽지 못했어요.');
+    reader.onload = () => {
+      let parsed = null;
+      try { parsed = JSON.parse(String(reader.result)); } catch (err) { parsed = null; }
+      if (!parsed) { toast('JSON 파일을 읽지 못했어요. 파일을 확인해 주세요.'); return; }
+
+      const list = Array.isArray(parsed) ? parsed
+        : Array.isArray(parsed.entries) ? parsed.entries
+        : (parsed.money && Array.isArray(parsed.money.entries)) ? parsed.money.entries
+        : null;
+      if (!list) { toast('가계부 내역(entries)을 찾지 못했어요. 카드 내역 파일인지 확인해 주세요.'); return; }
+
+      const incoming = list.map(normalizeEntry).filter((e) => e && e.amount > 0);
+      if (!incoming.length) { toast('불러올 내역이 없어요.'); return; }
+
+      const seen = new Set(state.money.entries.map(entryKey));
+      const fresh = [];
+      incoming.forEach((e) => {
+        const key = entryKey(e);
+        if (seen.has(key)) return;
+        seen.add(key);
+        fresh.push(e);
+      });
+      const skipped = incoming.length - fresh.length;
+      const sum = fresh.reduce((a, e) => a + e.amount, 0);
+      const month = String(parsed.month || (fresh[0] && monthKey(fresh[0].date)) || state.ui.month || monthKey()).slice(0, 7);
+      const title = parsed.title || '카드 내역 파일';
+
+      openModal({
+        title: '📥 가계부 파일 불러오기',
+        body: `
+          <p class="hint" style="font-size:12.5px;color:var(--ink-2);line-height:1.7">${escapeHtml(title)}<br>파일: ${escapeHtml(file.name)}</p>
+          <div style="display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--ink-3);margin:12px 0 8px">
+            <span>읽은 내역 <b>${incoming.length}건</b></span>
+            <span>새로 추가 <b>${fresh.length}건</b></span>
+            ${skipped ? `<span>이미 있어 건너뜀 <b>${skipped}건</b></span>` : ''}
+            <span>합계 <b>${won(sum)}</b></span>
+          </div>
+          <p class="hint" style="font-size:12.5px;color:var(--ink-2);line-height:1.7">기존 기록과 예산은 그대로 두고 ${Number(month.split('-')[1])}월 가계부에 위 내역만 더해요.</p>`,
+        submitLabel: fresh.length ? `${fresh.length}건 추가` : '닫기',
+        onSubmit: () => {
+          if (!fresh.length) return;
+          state.money.entries = state.money.entries.concat(fresh.map((e) => ({ ...e, id: entryId(e.date, e.time) })));
+          state.ui.month = month;
+          save();
+          renderMoney();
+          renderHome();
+          toast(`${fresh.length}건을 가계부에 더했어요.`);
+        }
+      });
+    };
+    reader.readAsText(file);
+  }
+
   /* ---------- 설정 ---------- */
   function openSettings() {
     openModal({
@@ -1045,6 +1128,12 @@
     const setBudget = t.closest('[data-set-budget]');
     if (setBudget) { openBudgetModal(); return; }
 
+    if (t.closest('#moneyImportBtn')) {
+      const fi = $('#moneyFileInput');
+      if (fi) fi.click();
+      return;
+    }
+
     const delEntry = t.closest('[data-del-entry]');
     if (delEntry) {
       const item = state.money.entries.find((x) => x.id === delEntry.dataset.delEntry);
@@ -1138,6 +1227,9 @@
     if (RENDERERS[t] && t !== state.ui.tab) showTab(t);
   });
   loadWeather();
+
+  const moneyFileInput = $('#moneyFileInput');
+  if (moneyFileInput) moneyFileInput.addEventListener('change', () => importMoneyFile(moneyFileInput));
 
   setInterval(() => { renderClock(); renderCountdown(); }, 1000 * 20);
 
