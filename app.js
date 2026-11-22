@@ -29,6 +29,7 @@
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
   ));
   const won = (n) => (Number(n) || 0).toLocaleString('ko-KR') + '원';
+  const fmtNum = (n) => (Number(n) || 0).toLocaleString('ko-KR');
 
   /* ---------- 기본 데이터 ---------- */
   const defaultState = () => ({
@@ -870,8 +871,8 @@
           ${tags.length ? `<span class="fx-tags">${tags.join('')}</span>` : ''}
         </div>
         <div class="fx-line2">
-          <label class="fx-money"><span>예상</span><input type="number" inputmode="numeric" min="0" step="1" value="${item.amount ? item.amount : ''}" placeholder="0" data-fx-plan="${item.id}" aria-label="${escapeHtml(item.name)} 예상 금액"><span class="fx-unit">원</span></label>
-          <label class="fx-money actual"><span>실제</span><input type="number" inputmode="numeric" min="0" step="1" value="${a == null ? '' : a}" placeholder="미입력" data-fx-actual="${item.id}" aria-label="${escapeHtml(item.name)} 실제 금액"><span class="fx-unit">원</span></label>
+          <label class="fx-money"><span>예상</span><input type="text" inputmode="numeric" autocomplete="off" value="${item.amount ? fmtNum(item.amount) : ''}" placeholder="0" data-fx-plan="${item.id}" aria-label="${escapeHtml(item.name)} 예상 금액"><span class="fx-unit">원</span></label>
+          <label class="fx-money actual"><span>실제</span><input type="text" inputmode="numeric" autocomplete="off" value="${a == null ? '' : fmtNum(a)}" placeholder="미입력" data-fx-actual="${item.id}" aria-label="${escapeHtml(item.name)} 실제 금액"><span class="fx-unit">원</span></label>
           <span class="fx-diff" data-fx-diff="${item.id}">${fxDiffHtml(item, a)}</span>
         </div>
       </div>
@@ -1791,7 +1792,8 @@
     if (fxInput) {
       const card = fxInput.closest('[data-scope]');
       const scope = card ? card.dataset.scope : 'biz';
-      const raw = fxInput.value === '' ? '' : Math.max(0, Math.round(Number(fxInput.value) || 0));
+      const digits = String(fxInput.value).replace(/[^0-9]/g, '');
+      const raw = digits === '' ? '' : Math.min(9.99e12, Number(digits) || 0);
       if (fxInput.dataset.fxPlan) {
         const item = state.fixed.items.find((i) => i.id === fxInput.dataset.fxPlan);
         if (item) item.amount = raw === '' ? 0 : raw;
@@ -1814,6 +1816,14 @@
     if (cnt) cnt.textContent = ta.value.length + '자';
     clearTimeout(window.__memoTimer);
     window.__memoTimer = setTimeout(save, 350);
+  });
+
+  // 금액 칸에서 손을 떼면 1,000 단위로 보기 좋게 (값 자체는 그대로)
+  document.addEventListener('change', (e) => {
+    const fxInput = e.target.closest('[data-fx-plan], [data-fx-actual]');
+    if (!fxInput) return;
+    const digits = String(fxInput.value).replace(/[^0-9]/g, '');
+    fxInput.value = digits ? fmtNum(Number(digits)) : '';
   });
 
   // 단계 카드 키보드 조작
