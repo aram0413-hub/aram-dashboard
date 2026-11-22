@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Jua&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=14">
+<link rel="stylesheet" href="style.css?v=15">
 </head>
 <body>
 <div class="blobs" aria-hidden="true">
@@ -164,11 +164,13 @@
     <div class="panel-head">
       <div>
         <h2 class="panel-title">📦 에이치엠유통</h2>
-        <p class="panel-desc">사업 고정지출과 챙길 일을 함께 봐요.</p>
+        <p class="panel-desc">사업 매출·매입과 고정지출, 챙길 일을 함께 봐요.</p>
       </div>
       <button class="btn btn-mint" type="button" data-add-todo="biz">＋ 할 일 추가</button>
     </div>
+    <div id="bizSales"></div>
     <div id="bizFixed"></div>
+    <input type="file" id="salesFileInput" accept="application/json,.json" class="file-input">
     <div class="two-col">
       <div class="col">
         <div class="card list-card" id="bizToday"></div>
@@ -232,6 +234,6 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="app.js?v=14"></script>
+<script src="app.js?v=15"></script>
 </body>
 </html>

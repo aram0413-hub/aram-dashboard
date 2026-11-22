@@ -92,6 +92,16 @@
     },
     money: { budgets: {}, entries: [] },
     fixed: { items: [], months: {} },
+    sales: {
+      activeYear: Number(monthKey().slice(0, 4)),
+      business: { name: '', regNo: '' },
+      source: '',
+      updatedAt: null,
+      months: {},
+      partners: { sales: [], purchase: [] },
+      vatReturns: [],
+      notes: []
+    },
     ui: { tab: 'home', kidsView: 'c5', month: monthKey() }
   });
 
@@ -142,6 +152,9 @@
       if (Object.keys(actual).length || Object.keys(paid).length) fxMonths[m] = { actual, paid };
     });
     s.fixed.months = fxMonths;
+
+    /* 매출·매입: 파일에서 온 값도 같은 모양으로 (실제 금액은 이 기기에만) */
+    s.sales = normalizeSalesState(saved.sales);
     return s;
   }
 
@@ -574,6 +587,7 @@
     renderTodoList($('#bizWeek'), state.biz.todos.filter((t) => t.when === 'week'), '이번 주 할 일', 'biz', 'week');
     renderMemo($('#bizMemo'), 'biz', '📝 사업 메모', '거래처, 발주, 일정 등 챙길 내용을 적어 두세요.');
     renderFixed('biz');
+    renderBizSales();
   }
 
   function renderTodoList(el, todos, title, key, when) {
@@ -1193,6 +1207,648 @@
     reader.readAsText(file);
   }
 
+  /* =========================================================
+     매출·매입 현황 (사업)
+     - 홈택스 등에서 받은 월별 매출·매입을 파일로 불러와 이 기기에만 보관
+     - 실제 금액·거래처·사업자번호는 저장소(GitHub)에 넣지 않고 localStorage에만 저장
+     ========================================================= */
+  const SALES_FILE_TYPE = 'uri-jip-dashboard.biz-sales';
+
+  function salesDefault() {
+    return {
+      activeYear: Number(monthKey().slice(0, 4)),
+      business: { name: '', regNo: '' },
+      source: '',
+      updatedAt: null,
+      months: {},
+      partners: { sales: [], purchase: [] },
+      vatReturns: [],
+      notes: []
+    };
+  }
+
+  function salesNum(v) {
+    const n = Number(String(v == null ? 0 : v).replace(/[^0-9.-]/g, ''));
+    return Number.isFinite(n) ? Math.max(0, Math.round(n)) : 0;
+  }
+
+  function salesTriple(raw) {
+    if (raw == null) return { supply: 0, vat: 0, count: 0 };
+    if (typeof raw === 'number' || typeof raw === 'string') return { supply: salesNum(raw), vat: 0, count: 0 };
+    if (typeof raw !== 'object') return { supply: 0, vat: 0, count: 0 };
+    return {
+      supply: salesNum(raw.supply != null ? raw.supply : raw.amount),
+      vat: salesNum(raw.vat != null ? raw.vat : raw.tax),
+      count: salesNum(raw.count != null ? raw.count : raw.cnt)
+    };
+  }
+
+  function salesMonthRec(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const card = raw.card && typeof raw.card === 'object' ? raw.card : {};
+    const ded = card.deductible || card.deduction || card.ded || card['공제'] || null;
+    const all = card.total || card.all || card.whole || card['전체'] || null;
+    return {
+      sales: salesTriple(raw.sales != null ? raw.sales : raw.revenue),
+      purchase: salesTriple(raw.purchase != null ? raw.purchase : raw.buy),
+      card: { deductible: salesTriple(ded), total: salesTriple(all) },
+      memo: String(raw.memo || raw.note || '').trim().slice(0, 120)
+    };
+  }
+
+  function salesPartyList(raw) {
+    const list = Array.isArray(raw) ? raw : [];
+    const out = [];
+    const seen = new Set();
+    list.forEach((p) => {
+      if (!p) return;
+      const name = String(typeof p === 'string' ? p : (p.name || p.title || '')).trim().slice(0, 40);
+      if (!name || seen.has(name)) return;
+      seen.add(name);
+      out.push({
+        name,
+        amount: salesNum(p.amount != null ? p.amount : p.supply),
+        count: salesNum(p.count != null ? p.count : p.cnt)
+      });
+    });
+    return out.sort((a, b) => b.amount - a.amount);
+  }
+
+  function normalizeSalesState(raw) {
+    const base = salesDefault();
+    if (!raw || typeof raw !== 'object') return base;
+    const biz = raw.business && typeof raw.business === 'object' ? raw.business : {};
+    const out = {
+      activeYear: base.activeYear,
+      business: {
+        name: String(biz.name || raw.bizName || '').trim().slice(0, 40),
+        regNo: String(biz.regNo || raw.regNo || '').trim().slice(0, 20)
+      },
+      source: String(raw.source || '').trim().slice(0, 200),
+      updatedAt: raw.updatedAt || null,
+      months: {},
+      partners: { sales: [], purchase: [] },
+      vatReturns: [],
+      notes: []
+    };
+
+    const rawMonths = raw.months || raw.monthly || null;
+    const rows = Array.isArray(rawMonths)
+      ? rawMonths
+      : (rawMonths && typeof rawMonths === 'object')
+        ? Object.keys(rawMonths).map((k) => Object.assign({ month: k }, rawMonths[k] || {}))
+        : [];
+    rows.forEach((row) => {
+      if (!row || typeof row !== 'object') return;
+      const key = String(row.month || row.key || '').slice(0, 7);
+      if (!/^\d{4}-\d{2}$/.test(key)) return;
+      const rec = salesMonthRec(row);
+      if (rec) out.months[key] = rec;
+    });
+    const yearsInData = Object.keys(out.months).map((m) => m.slice(0, 4)).sort();
+    const wantYear = Number(raw.year || raw.activeYear || yearsInData[yearsInData.length - 1] || base.activeYear);
+    out.activeYear = wantYear > 1900 ? wantYear : base.activeYear;
+
+    const partners = raw.partners && typeof raw.partners === 'object' ? raw.partners : {};
+    out.partners.sales = salesPartyList(partners.sales || partners.sellers || raw.salesPartners);
+    out.partners.purchase = salesPartyList(partners.purchase || partners.buyers || raw.purchasePartners);
+
+    const vats = Array.isArray(raw.vatReturns) ? raw.vatReturns : (Array.isArray(raw.vat) ? raw.vat : []);
+    vats.forEach((v) => {
+      if (!v || typeof v !== 'object') return;
+      const period = String(v.period || v.name || '').trim().slice(0, 40);
+      if (!period) return;
+      out.vatReturns.push({
+        period,
+        range: String(v.range || v.months || '').trim().slice(0, 20),
+        paid: salesNum(v.paid != null ? v.paid : v.amount),
+        note: String(v.note || v.memo || '').trim().slice(0, 80)
+      });
+    });
+
+    const notes = Array.isArray(raw.notes) ? raw.notes : [];
+    const seenNotes = new Set();
+    notes.forEach((n) => {
+      const text = String(typeof n === 'string' ? n : (n && (n.text || n.note)) || '').trim();
+      if (!text || seenNotes.has(text)) return;
+      seenNotes.add(text);
+      out.notes.push(text.slice(0, 200));
+    });
+    return out;
+  }
+
+  const salesRecEmpty = (rec) => {
+    if (!rec) return true;
+    const parts = [rec.sales, rec.purchase, rec.card && rec.card.deductible, rec.card && rec.card.total];
+    return !rec.memo && !parts.some((x) => x && (x.supply || x.vat || x.count));
+  };
+
+  function salesYears() {
+    const set = new Set(Object.keys(state.sales.months).map((m) => m.slice(0, 4)));
+    set.add(String(state.sales.activeYear || new Date().getFullYear()));
+    return Array.from(set).sort();
+  }
+
+  function salesYear() {
+    const years = salesYears();
+    const want = String(state.sales.activeYear || '');
+    return years.indexOf(want) >= 0 ? want : years[years.length - 1];
+  }
+
+  function salesYearTotals(year) {
+    const t = {
+      sales: { supply: 0, vat: 0, count: 0 },
+      purchase: { supply: 0, vat: 0, count: 0 },
+      card: { deductible: { supply: 0, vat: 0, count: 0 }, total: { supply: 0, vat: 0, count: 0 } },
+      filled: 0
+    };
+    for (let i = 1; i <= 12; i++) {
+      const rec = state.sales.months[year + '-' + pad2(i)];
+      if (!rec) continue;
+      if (!salesRecEmpty(rec)) t.filled++;
+      ['sales', 'purchase'].forEach((k) => {
+        t[k].supply += rec[k].supply;
+        t[k].vat += rec[k].vat;
+        t[k].count += rec[k].count;
+      });
+      t.card.deductible.supply += rec.card.deductible.supply;
+      t.card.deductible.vat += rec.card.deductible.vat;
+      t.card.deductible.count += rec.card.deductible.count;
+      t.card.total.supply += rec.card.total.supply;
+      t.card.total.vat += rec.card.total.vat;
+      t.card.total.count += rec.card.total.count;
+    }
+    t.net = t.sales.supply - t.purchase.supply - t.card.deductible.supply;
+    return t;
+  }
+
+  const salesNetOf = (rec) => rec ? (rec.sales.supply - rec.purchase.supply - rec.card.deductible.supply) : 0;
+  const salesNetHtml = (n) => `<span class="sales-net ${n < 0 ? 'neg' : 'pos'}">${n < 0 ? '−' : '+'}${fmtNum(Math.abs(n))}</span>`;
+
+  function salesKpiHtml(t) {
+    return `
+      <div class="sales-kpi k-sales"><span>연간 매출 합계</span><b>${won(t.sales.supply + t.sales.vat)}</b><small>공급가액 ${fmtNum(t.sales.supply)} · 세액 ${fmtNum(t.sales.vat)}</small><small>${t.sales.count}건 · 부가세 포함</small></div>
+      <div class="sales-kpi k-buy"><span>세금계산서 매입</span><b>${won(t.purchase.supply + t.purchase.vat)}</b><small>공급가액 ${fmtNum(t.purchase.supply)} · 세액 ${fmtNum(t.purchase.vat)}</small><small>${t.purchase.count}건 · 부가세 포함</small></div>
+      <div class="sales-kpi k-card"><span>사업용카드 매입</span><b>${won(t.card.deductible.supply)}</b><small>전체 ${won(t.card.total.supply)}</small><small>공제 ${t.card.deductible.count}건 / 전체 ${t.card.total.count}건</small></div>
+      <div class="sales-kpi k-net"><span>매출 − 매입 차액</span><b class="${t.net < 0 ? 'minus' : ''}">${t.net < 0 ? '−' : ''}${won(Math.abs(t.net))}</b><small>세금(부가세) 제외 · 공급가액 기준</small><small>차액 = 매출 − 세금계산서 매입 − 카드 공제</small></div>`;
+  }
+
+  function salesChartHtml(year) {
+    let max = 0;
+    const cells = [];
+    for (let i = 1; i <= 12; i++) {
+      const rec = state.sales.months[year + '-' + pad2(i)];
+      const s = rec ? rec.sales.supply : 0;
+      const p = rec ? rec.purchase.supply + rec.card.deductible.supply : 0;
+      max = Math.max(max, s, p);
+      cells.push({ i, s, p, rec });
+    }
+    const cols = cells.map((c) => {
+      const hs = max ? Math.round((c.s / max) * 100) : 0;
+      const hp = max ? Math.round((c.p / max) * 100) : 0;
+      return `<div class="sc-col" title="${c.i}월 매출 ${fmtNum(c.s)}원 · 매입 ${fmtNum(c.p)}원">
+        <div class="sc-bars">
+          <span class="sc-bar sales" style="height:${c.s > 0 ? Math.max(3, hs) : 0}%"></span>
+          <span class="sc-bar buy" style="height:${c.p > 0 ? Math.max(3, hp) : 0}%"></span>
+        </div>
+        <span class="sc-x${c.rec && !salesRecEmpty(c.rec) ? ' on' : ''}">${c.i}</span>
+      </div>`;
+    }).join('');
+    return `<div class="sales-chart">
+      <div class="sales-legend"><span><i class="dot sales"></i>매출</span><span><i class="dot buy"></i>매입 (세금계산서 + 카드 공제)</span></div>
+      <div class="sales-chart-grid">${cols}</div>
+    </div>`;
+  }
+
+  function salesTableHtml(year, t) {
+    const label = (m) => Number(m.slice(5, 7)) + '월';
+    const nowM = monthKey();
+    const rows = [];
+    for (let i = 1; i <= 12; i++) {
+      const key = year + '-' + pad2(i);
+      const rec = state.sales.months[key];
+      const net = salesNetOf(rec);
+      const dash = '<span class="dash">—</span>';
+      rows.push(`<tr class="${key === nowM ? 'now' : ''}">
+        <td class="m"><button type="button" class="sales-mbtn" data-sales-edit="${key}" aria-label="${label(key)} 입력·수정">${label(key)}</button></td>
+        <td>${rec ? fmtNum(rec.sales.supply) : dash}</td>
+        <td>${rec ? fmtNum(rec.sales.vat) : dash}</td>
+        <td>${rec ? rec.sales.count : dash}</td>
+        <td>${rec ? fmtNum(rec.purchase.supply) : dash}</td>
+        <td>${rec ? fmtNum(rec.purchase.vat) : dash}</td>
+        <td>${rec ? rec.purchase.count : dash}</td>
+        <td>${rec && (rec.card.deductible.supply || rec.card.deductible.count) ? fmtNum(rec.card.deductible.supply) : dash}</td>
+        <td>${rec && (rec.card.total.supply || rec.card.total.count) ? fmtNum(rec.card.total.supply) : dash}</td>
+        <td>${rec ? salesNetHtml(net) : dash}</td>
+      </tr>`);
+      if (rec && rec.memo) {
+        rows.push(`<tr class="sales-memo"><td colspan="10">⚠️ ${escapeHtml(rec.memo)}</td></tr>`);
+      }
+    }
+    return `<div class="sales-table-wrap">
+      <table class="sales-table">
+        <thead>
+          <tr>
+            <th rowspan="2" class="m">월</th>
+            <th colspan="3" class="grp">매출 · 전자세금계산서</th>
+            <th colspan="3" class="grp">매입 · 전자세금계산서</th>
+            <th colspan="2" class="grp">사업용카드 매입</th>
+            <th rowspan="2">월 순수지</th>
+          </tr>
+          <tr>
+            <th>공급가액</th><th>세액</th><th>건수</th>
+            <th>공급가액</th><th>세액</th><th>건수</th>
+            <th>공제대상</th><th>전체</th>
+          </tr>
+        </thead>
+        <tbody>${rows.join('')}</tbody>
+        <tfoot>
+          <tr class="total">
+            <td class="m">합계</td>
+            <td>${fmtNum(t.sales.supply)}</td><td>${fmtNum(t.sales.vat)}</td><td>${t.sales.count}</td>
+            <td>${fmtNum(t.purchase.supply)}</td><td>${fmtNum(t.purchase.vat)}</td><td>${t.purchase.count}</td>
+            <td>${fmtNum(t.card.deductible.supply)}</td><td>${fmtNum(t.card.total.supply)}</td>
+            <td>${salesNetHtml(t.net)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>`;
+  }
+
+  function salesCardsHtml(year, t) {
+    const label = (m) => Number(m.slice(5, 7)) + '월';
+    const nowM = monthKey();
+    const cards = [];
+    for (let i = 1; i <= 12; i++) {
+      const key = year + '-' + pad2(i);
+      const rec = state.sales.months[key];
+      const net = salesNetOf(rec);
+      cards.push(`<div class="sales-mcard${key === nowM ? ' now' : ''}">
+        <div class="sc-head">
+          <b>${label(key)}${rec && !salesRecEmpty(rec) ? '' : ' <span class="dash">기록 없음</span>'}</b>
+          <button type="button" class="link-btn" data-sales-edit="${key}">${rec ? '수정' : '입력'}</button>
+        </div>
+        <div class="sc-grid">
+          <div class="sc-cell"><span>매출</span><b>${rec ? fmtNum(rec.sales.supply) : '—'}</b><small>세액 ${rec ? fmtNum(rec.sales.vat) : '—'} · ${rec ? rec.sales.count : 0}건</small></div>
+          <div class="sc-cell"><span>매입(세금계산서)</span><b>${rec ? fmtNum(rec.purchase.supply) : '—'}</b><small>세액 ${rec ? fmtNum(rec.purchase.vat) : '—'} · ${rec ? rec.purchase.count : 0}건</small></div>
+          <div class="sc-cell"><span>사업용카드</span><b>${rec ? fmtNum(rec.card.deductible.supply) : '—'}</b><small>전체 ${rec ? fmtNum(rec.card.total.supply) : '—'}</small></div>
+        </div>
+        <div class="sc-foot">순수지 ${rec ? salesNetHtml(net) : '<span class="dash">—</span>'}${rec && rec.memo ? ` · <span class="sc-memo">⚠️ ${escapeHtml(rec.memo)}</span>` : ''}</div>
+      </div>`);
+    }
+    return `<div class="sales-cards">${cards.join('')}</div>`;
+  }
+
+  function salesPartyHtml(list, kind) {
+    const total = list.reduce((a, p) => a + p.amount, 0);
+    const rows = list.map((p) => {
+      const pct = total ? Math.max(2, Math.round((p.amount / total) * 100)) : 0;
+      return `<div class="sp-row">
+        <div class="sp-top">
+          <span class="sp-name">${escapeHtml(p.name)}</span>
+          <span class="sp-amt">${fmtNum(p.amount)}<small>${p.count}건</small></span>
+        </div>
+        <div class="sp-bar"><span style="width:${pct}%"></span></div>
+      </div>`;
+    }).join('');
+    return `<div class="sales-panel ${kind}">
+      <h4>${kind === 'sales' ? '📤 매출처' : '📥 매입처'} <span class="count">${list.length}곳 · ${won(total)}</span></h4>
+      ${rows || '<div class="empty-box">아직 없어요.</div>'}
+    </div>`;
+  }
+
+  function renderBizSales() {
+    const el = $('#bizSales');
+    if (!el) return;
+    if (!state.sales || typeof state.sales !== 'object') state.sales = salesDefault();
+    const years = salesYears();
+    const year = salesYear();
+    const t = salesYearTotals(year);
+    const filled = Object.keys(state.sales.months).length;
+    const bizName = state.sales.business.name;
+    const regNo = state.sales.business.regNo;
+
+    const yearNav = years.length > 1
+      ? `<div class="month-picker fx-monthpick">
+          <button class="icon-btn sm" type="button" data-sales-year="-1" aria-label="이전 연도">◀</button>
+          <strong>${year}년</strong>
+          <button class="icon-btn sm" type="button" data-sales-year="1" aria-label="다음 연도">▶</button>
+        </div>`
+      : `<span class="fx-month">${year}년</span>`;
+
+    const buttons = `
+      <button class="btn btn-ghost btn-sm" type="button" data-sales-import>📥 매출·매입 불러오기</button>
+      <button class="btn btn-ghost btn-sm" type="button" data-sales-export>⬇️ 내보내기</button>
+      <button class="btn btn-mint btn-sm" type="button" data-sales-add>＋ 월 입력</button>`;
+
+    if (!filled) {
+      el.innerHTML = `<div class="card sales-card">
+        <header class="fixed-head">
+          <div class="fixed-title">
+            <h3>📊 월별 매출·매입 현황</h3>
+            ${yearNav}
+          </div>
+          <div class="fixed-tools">${buttons}</div>
+        </header>
+        <div class="empty-box sales-empty">
+          <b>📥 매출·매입 파일을 불러와 주세요.</b><br>
+          홈택스에서 정리한 월별 매출·매입 JSON을 읽으면 연간 요약, 월별 표, 매출처·매입처, 부가세 신고 기록이 여기에 나와요.<br>
+          금액은 이 기기 브라우저에만 저장되고 인터넷(GitHub)에는 올라가지 않아요.
+        </div>
+      </div>`;
+      return;
+    }
+
+    const partners = state.sales.partners;
+    const hasPartners = partners.sales.length || partners.purchase.length;
+    const vatRows = state.sales.vatReturns.map((v) => `
+      <div class="svat-row">
+        <span class="svat-p">${escapeHtml(v.period)}${v.range ? `<small>${escapeHtml(v.range)}</small>` : ''}</span>
+        <span class="svat-a">${won(v.paid)}${v.note ? `<small>${escapeHtml(v.note)}</small>` : ''}</span>
+      </div>`).join('');
+    const noteRows = state.sales.notes.map((n) => `<p class="snote">💡 <span>${escapeHtml(n)}</span></p>`).join('');
+
+    el.innerHTML = `<div class="card sales-card">
+      <header class="fixed-head">
+        <div class="fixed-title">
+          <h3>📊 월별 매출·매입 현황</h3>
+          ${yearNav}
+          ${bizName ? `<span class="sales-biz">${escapeHtml(bizName)}${regNo ? ' · ' + escapeHtml(regNo) : ''}</span>` : ''}
+        </div>
+        <div class="fixed-tools">${buttons}</div>
+      </header>
+      <div class="sales-kpis">${salesKpiHtml(t)}</div>
+      ${salesChartHtml(year)}
+      ${salesTableHtml(year, t)}
+      ${salesCardsHtml(year, t)}
+      ${hasPartners ? `<div class="sales-sub">
+        ${salesPartyHtml(partners.sales, 'sales')}
+        ${salesPartyHtml(partners.purchase, 'purchase')}
+      </div>` : ''}
+      ${state.sales.vatReturns.length ? `<div class="sales-sub one"><div class="sales-panel vat">
+        <h4>🧾 부가세 신고 기록 <span class="count">${state.sales.vatReturns.length}건</span></h4>
+        ${vatRows}
+      </div></div>` : ''}
+      ${state.sales.notes.length ? `<div class="sales-sub one"><div class="sales-panel notes">
+        <h4>📌 챙길 메모 <span class="count">${state.sales.notes.length}개</span></h4>
+        ${noteRows}
+      </div></div>` : ''}
+      <p class="fx-note">${state.sales.source ? escapeHtml(state.sales.source) + ' · ' : ''}금액은 공급가액·세액(원) 기준이에요. 실제 금액은 이 기기 브라우저에만 저장되고, ⬇️ 내보내기 파일로 다른 기기로 옮길 수 있어요.</p>
+    </div>`;
+  }
+
+  /* ---------- 월 입력·수정 ---------- */
+  function openSalesMonthModal({ month } = {}) {
+    const year = salesYear();
+    const fallback = monthKey().slice(0, 4) === year ? monthKey() : year + '-01';
+    const key0 = /^\d{4}-\d{2}$/.test(String(month || '')) ? month : fallback;
+    const isEdit = !!state.sales.months[key0];
+    const rec = state.sales.months[key0] || {
+      sales: { supply: 0, vat: 0, count: 0 },
+      purchase: { supply: 0, vat: 0, count: 0 },
+      card: { deductible: { supply: 0, vat: 0, count: 0 }, total: { supply: 0, vat: 0, count: 0 } },
+      memo: ''
+    };
+    const val = (n) => (n ? fmtNum(n) : '');
+    const money = (id, label, v) => `<div class="field"><label for="${id}">${label}</label>
+      <input type="text" id="${id}" inputmode="numeric" autocomplete="off" value="${val(v)}" placeholder="0"></div>`;
+
+    openModal({
+      title: isEdit ? '📊 매출·매입 수정' : '📊 월 매출·매입 입력',
+      body: `
+        <div class="sales-form">
+          <div class="field"><label for="sd-month">월</label>
+            <input type="month" id="sd-month" value="${key0}">
+          </div>
+          <div class="sf-group">
+            <p class="sf-title">매출 (전자세금계산서)</p>
+            <div class="sf-grid">
+              ${money('sd-s-sup', '공급가액', rec.sales.supply)}
+              ${money('sd-s-vat', '세액', rec.sales.vat)}
+              ${money('sd-s-cnt', '건수', rec.sales.count)}
+            </div>
+          </div>
+          <div class="sf-group">
+            <p class="sf-title">매입 (전자세금계산서)</p>
+            <div class="sf-grid">
+              ${money('sd-p-sup', '공급가액', rec.purchase.supply)}
+              ${money('sd-p-vat', '세액', rec.purchase.vat)}
+              ${money('sd-p-cnt', '건수', rec.purchase.count)}
+            </div>
+          </div>
+          <div class="sf-group">
+            <p class="sf-title">사업용카드 매입</p>
+            <div class="sf-grid">
+              ${money('sd-cd-sup', '공제대상 공급가액', rec.card.deductible.supply)}
+              ${money('sd-cd-vat', '공제대상 세액', rec.card.deductible.vat)}
+              ${money('sd-cd-cnt', '공제 건수', rec.card.deductible.count)}
+            </div>
+            <div class="sf-grid">
+              ${money('sd-ca-sup', '전체 공급가액', rec.card.total.supply)}
+              ${money('sd-ca-vat', '전체 세액', rec.card.total.vat)}
+              ${money('sd-ca-cnt', '전체 건수', rec.card.total.count)}
+            </div>
+          </div>
+          <div class="field"><label for="sd-memo">메모 (선택)</label>
+            <input type="text" id="sd-memo" maxlength="120" value="${escapeHtml(rec.memo || '')}" placeholder="예: 카드 공제 변경 확인 필요">
+          </div>
+          <p class="hint">세액을 비워 두고 공급가액만 적으면 10%로 채워 드려요. 입력한 내용은 이 기기 브라우저에만 저장돼요.</p>
+          ${isEdit ? '<button type="button" class="btn btn-ghost btn-sm" id="sdClear">🗑 이 달 기록 비우기</button>' : ''}
+        </div>`,
+      submitLabel: isEdit ? '수정 저장' : '저장',
+      onMount: (root) => {
+        const pairs = [['sd-s-sup', 'sd-s-vat'], ['sd-p-sup', 'sd-p-vat'], ['sd-cd-sup', 'sd-cd-vat'], ['sd-ca-sup', 'sd-ca-vat']];
+        pairs.forEach(([supId, vatId]) => {
+          const sup = root.querySelector('#' + supId);
+          const vat = root.querySelector('#' + vatId);
+          if (!sup || !vat) return;
+          sup.addEventListener('blur', () => {
+            const digits = String(sup.value).replace(/[^0-9]/g, '');
+            if (!digits || String(vat.value).trim()) return;
+            vat.value = fmtNum(Math.round(Number(digits) * 0.1));
+          });
+        });
+        const clear = root.querySelector('#sdClear');
+        if (clear) {
+          clear.addEventListener('click', () => {
+            closeModal();
+            confirmModal({
+              title: '이 달 기록 비우기',
+              message: `${key0.slice(0, 4)}년 ${Number(key0.slice(5, 7))}월 매출·매입 기록을 지울까요?`,
+              confirmLabel: '비우기',
+              onConfirm: () => {
+                delete state.sales.months[key0];
+                save();
+                renderBizSales();
+                toast('이 달 기록을 비웠어요.');
+              }
+            });
+          });
+        }
+      },
+      onSubmit: (root) => {
+        const m = String(root.querySelector('#sd-month').value || '').slice(0, 7);
+        if (!/^\d{4}-\d{2}$/.test(m)) { toast('월을 골라 주세요.'); return false; }
+        const num = (id) => salesNum(root.querySelector('#' + id).value);
+        const rec2 = {
+          sales: { supply: num('sd-s-sup'), vat: num('sd-s-vat'), count: num('sd-s-cnt') },
+          purchase: { supply: num('sd-p-sup'), vat: num('sd-p-vat'), count: num('sd-p-cnt') },
+          card: {
+            deductible: { supply: num('sd-cd-sup'), vat: num('sd-cd-vat'), count: num('sd-cd-cnt') },
+            total: { supply: num('sd-ca-sup'), vat: num('sd-ca-vat'), count: num('sd-ca-cnt') }
+          },
+          memo: String(root.querySelector('#sd-memo').value || '').trim().slice(0, 120)
+        };
+        if (m !== key0 && state.sales.months[m] && !salesRecEmpty(state.sales.months[m])) {
+          toast(m.slice(0, 4) + '년 ' + Number(m.slice(5, 7)) + '월에 이미 기록이 있어요.');
+          return false;
+        }
+        if (salesRecEmpty(rec2)) {
+          delete state.sales.months[key0];
+        } else {
+          if (m !== key0) delete state.sales.months[key0];
+          state.sales.months[m] = rec2;
+        }
+        state.sales.activeYear = Number(m.slice(0, 4));
+        state.sales.updatedAt = new Date().toISOString();
+        save();
+        renderBizSales();
+        toast(`${m.slice(0, 4)}년 ${Number(m.slice(5, 7))}월 매출·매입을 저장했어요.`);
+      }
+    });
+  }
+
+  /* ---------- 내보내기 / 불러오기 ---------- */
+  function exportSales() {
+    const year = salesYear();
+    const months = {};
+    Object.keys(state.sales.months).sort().forEach((k) => { months[k] = state.sales.months[k]; });
+    const data = {
+      type: SALES_FILE_TYPE,
+      version: 1,
+      title: `${state.sales.business.name || '사업'} ${year}년 매출·매입 현황`,
+      year: Number(year),
+      business: state.sales.business,
+      source: state.sales.source,
+      exportedAt: new Date().toISOString(),
+      months,
+      partners: state.sales.partners,
+      vatReturns: state.sales.vatReturns,
+      notes: state.sales.notes
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `매출매입-${year}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('매출·매입 파일을 내려받았어요.');
+  }
+
+  /* 매출·매입 파일 불러오기 — 기존 고정지출·가계부·루틴은 그대로 두고 매출 기록만 더함 */
+  function importSalesFile(input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    input.value = '';
+    const reader = new FileReader();
+    reader.onerror = () => toast('파일을 읽지 못했어요.');
+    reader.onload = () => {
+      let parsed = null;
+      try { parsed = JSON.parse(String(reader.result)); } catch (err) { parsed = null; }
+      if (!parsed || typeof parsed !== 'object') { toast('JSON 파일을 읽지 못했어요. 파일을 확인해 주세요.'); return; }
+
+      const src = (parsed.sales && typeof parsed.sales === 'object' &&
+        (parsed.sales.months || parsed.sales.partners)) ? Object.assign({}, parsed, parsed.sales) : parsed;
+      const incoming = normalizeSalesState(src);
+      const inMonths = Object.keys(incoming.months);
+      if (!inMonths.length && !incoming.partners.sales.length && !incoming.partners.purchase.length && !incoming.vatReturns.length) {
+        toast('매출·매입 기록(months)을 찾지 못했어요. 파일을 확인해 주세요.');
+        return;
+      }
+
+      const fresh = [];
+      const dup = [];
+      inMonths.sort().forEach((k) => {
+        if (salesRecEmpty(incoming.months[k])) return;
+        if (state.sales.months[k] && !salesRecEmpty(state.sales.months[k])) dup.push(k);
+        else fresh.push(k);
+      });
+      const inYear = inMonths.length ? Number(inMonths[inMonths.length - 1].slice(0, 4)) : incoming.activeYear;
+      const yTotals = { sales: 0, purchase: 0 };
+      inMonths.forEach((k) => {
+        yTotals.sales += incoming.months[k].sales.supply;
+        yTotals.purchase += incoming.months[k].purchase.supply;
+      });
+
+      openModal({
+        title: '📥 매출·매입 파일 불러오기',
+        body: `
+          <p class="hint" style="font-size:12.5px;color:var(--ink-2);line-height:1.7">${escapeHtml(parsed.title || '매출·매입 파일')}<br>파일: ${escapeHtml(file.name)}${incoming.source ? '<br>' + escapeHtml(incoming.source) : ''}</p>
+          <div class="fx-import-grid">
+            <span>읽은 달 <b>${inMonths.length}개</b></span>
+            <span>새로 추가 <b>${fresh.length}개</b></span>
+            ${dup.length ? `<span>이미 있어 건너뜀 <b>${dup.length}개</b></span>` : ''}
+          </div>
+          <div class="fx-import-grid">
+            <span>매출 공급가액 <b>${won(yTotals.sales)}</b></span>
+            <span>매입 공급가액 <b>${won(yTotals.purchase)}</b></span>
+          </div>
+          <div class="fx-import-grid">
+            <span>매출처 <b>${incoming.partners.sales.length}곳</b></span>
+            <span>매입처 <b>${incoming.partners.purchase.length}곳</b></span>
+            <span>부가세 신고 <b>${incoming.vatReturns.length}건</b></span>
+            <span>메모 <b>${incoming.notes.length}개</b></span>
+          </div>
+          ${dup.length ? `<label class="sf-check"><input type="checkbox" id="sd-overwrite"> 이미 기록된 달도 파일 값으로 바꾸기 (${dup.length}개)</label>` : ''}
+          <p class="hint" style="font-size:12.5px;color:var(--ink-2);line-height:1.7">기존 루틴·고정지출·가계부는 그대로 두고 매출·매입 기록만 더해요. 이 내용은 이 기기 브라우저에만 저장되고 인터넷에 올라가지 않아요.</p>`,
+        submitLabel: fresh.length || dup.length ? '불러오기' : '닫기',
+        onSubmit: (root) => {
+          const ow = !!(root.querySelector('#sd-overwrite') || {}).checked;
+          let added = 0;
+          let replaced = 0;
+          fresh.forEach((k) => { state.sales.months[k] = incoming.months[k]; added++; });
+          if (ow) dup.forEach((k) => { state.sales.months[k] = incoming.months[k]; replaced++; });
+
+          const mergeParties = (key, list) => {
+            const cur = state.sales.partners[key];
+            list.forEach((p) => {
+              const hit = cur.find((x) => x.name === p.name);
+              if (!hit) cur.push(p);
+              else if (ow) { hit.amount = p.amount; hit.count = p.count; }
+            });
+            state.sales.partners[key] = cur.sort((a, b) => b.amount - a.amount);
+          };
+          mergeParties('sales', incoming.partners.sales);
+          mergeParties('purchase', incoming.partners.purchase);
+
+          incoming.vatReturns.forEach((v) => {
+            const hit = state.sales.vatReturns.find((x) => x.period === v.period);
+            if (!hit) state.sales.vatReturns.push(v);
+            else if (ow) Object.assign(hit, v);
+          });
+
+          incoming.notes.forEach((n) => {
+            if (state.sales.notes.indexOf(n) < 0) state.sales.notes.push(n);
+          });
+
+          if (!state.sales.business.name && incoming.business.name) state.sales.business = incoming.business;
+          if (!state.sales.source || ow) state.sales.source = incoming.source || state.sales.source;
+          state.sales.activeYear = inYear;
+          state.sales.updatedAt = new Date().toISOString();
+          save();
+          renderBizSales();
+          toast(added || replaced
+            ? `매출·매입 ${added + replaced}개월을 ${replaced ? '바꾸고 더했어요' : '더했어요'}.`
+            : '이미 있는 기록이라 새로 더하지 않았어요.');
+        }
+      });
+    };
+    reader.readAsText(file);
+  }
+
   /* ---------- 탭 전환 ---------- */
   const RENDERERS = { home: renderHome, kids: renderKids, work: renderWorkAll, biz: renderBizAll, money: renderMoney };
 
@@ -1719,6 +2375,34 @@
       return;
     }
 
+    // 매출·매입
+    const salesImportBtn = t.closest('[data-sales-import]');
+    if (salesImportBtn) {
+      const si = $('#salesFileInput');
+      if (si) si.click();
+      return;
+    }
+
+    const salesExportBtn = t.closest('[data-sales-export]');
+    if (salesExportBtn) { exportSales(); return; }
+
+    const salesAddBtn = t.closest('[data-sales-add]');
+    if (salesAddBtn) { openSalesMonthModal({}); return; }
+
+    const salesEditBtn = t.closest('[data-sales-edit]');
+    if (salesEditBtn) { openSalesMonthModal({ month: salesEditBtn.dataset.salesEdit }); return; }
+
+    const salesYearBtn = t.closest('[data-sales-year]');
+    if (salesYearBtn) {
+      const years = salesYears();
+      const cur = years.indexOf(salesYear());
+      const next = years[(cur + Number(salesYearBtn.dataset.salesYear) + years.length) % years.length];
+      state.sales.activeYear = Number(next);
+      save();
+      renderBizSales();
+      return;
+    }
+
     // 가계부
     const setBudget = t.closest('[data-set-budget]');
     if (setBudget) { openBudgetModal(); return; }
@@ -1853,6 +2537,9 @@
 
   const moneyFileInput = $('#moneyFileInput');
   if (moneyFileInput) moneyFileInput.addEventListener('change', () => importMoneyFile(moneyFileInput));
+
+  const salesFileInput = $('#salesFileInput');
+  if (salesFileInput) salesFileInput.addEventListener('change', () => importSalesFile(salesFileInput));
 
   const fixedFileInput = $('#fixedFileInput');
   if (fixedFileInput) fixedFileInput.addEventListener('change', () => importFixedFile(fixedFileInput, fixedFileInput.dataset.scope || 'biz'));
