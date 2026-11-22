@@ -981,7 +981,7 @@
       const entered = t.entered > 0;
       const diffText = entered
         ? (t.diff === 0 ? '예상과 같음' : (t.diff < 0 ? won(-t.diff) + ' 절약' : won(t.diff) + ' 초과'))
-        : '실제 입력 전';
+        : '입력 전';
       const diffCls = entered ? (t.diff < 0 ? 'save' : t.diff > 0 ? 'over' : 'same') : 'wait';
       return `<button type="button" class="fx-mini" data-goto="${meta.tab}" aria-label="${meta.label} 고정지출 자세히 보기">
         <span class="fx-mini-top">${meta.icon} ${meta.label} <span class="pill ${scope === 'biz' ? 'pill-lav' : 'pill-pink'}">${t.count}건</span></span>
