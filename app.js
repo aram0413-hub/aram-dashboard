@@ -1483,6 +1483,7 @@
       const key = year + '-' + pad2(i);
       const rec = state.sales.months[key];
       const net = salesNetOf(rec);
+      const cardOn = !!rec && !!(rec.card.deductible.supply || rec.card.deductible.count || rec.card.total.supply || rec.card.total.count);
       cards.push(`<div class="sales-mcard${key === nowM ? ' now' : ''}">
         <div class="sc-head">
           <b>${label(key)}${rec && !salesRecEmpty(rec) ? '' : ' <span class="dash">기록 없음</span>'}</b>
@@ -1491,7 +1492,7 @@
         <div class="sc-grid">
           <div class="sc-cell"><span>매출</span><b>${rec ? fmtNum(rec.sales.supply) : '—'}</b><small>세액 ${rec ? fmtNum(rec.sales.vat) : '—'} · ${rec ? rec.sales.count : 0}건</small></div>
           <div class="sc-cell"><span>매입(세금계산서)</span><b>${rec ? fmtNum(rec.purchase.supply) : '—'}</b><small>세액 ${rec ? fmtNum(rec.purchase.vat) : '—'} · ${rec ? rec.purchase.count : 0}건</small></div>
-          <div class="sc-cell"><span>사업용카드</span><b>${rec ? fmtNum(rec.card.deductible.supply) : '—'}</b><small>전체 ${rec ? fmtNum(rec.card.total.supply) : '—'}</small></div>
+          <div class="sc-cell"><span>사업용카드</span><b>${cardOn ? fmtNum(rec.card.deductible.supply) : '—'}</b><small>전체 ${cardOn ? fmtNum(rec.card.total.supply) : '—'}</small></div>
         </div>
         <div class="sc-foot">순수지 ${rec ? salesNetHtml(net) : '<span class="dash">—</span>'}${rec && rec.memo ? ` · <span class="sc-memo">⚠️ ${escapeHtml(rec.memo)}</span>` : ''}</div>
       </div>`);
