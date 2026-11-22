@@ -758,8 +758,8 @@
     if (md) return 100 + Number(md[1]) * 32 + Number(md[2]);
     if (s === '말일' || s === '말') return 92;
     if (/^\d{1,2}$/.test(s)) return Number(s);
-    if (s === '연납') return 96;
-    return 93;
+    if (s === '연납') return 510;
+    return 500;
   }
 
   const fxDayLabel = (day) => {
@@ -827,7 +827,7 @@
   function fxDiffInfo(item, actual) {
     const plan = Number(item.amount) || 0;
     if (actual == null) {
-      return { cls: 'wait', text: plan > 0 ? '실제 미입력' : '예상·실제 미입력' };
+      return { cls: 'wait', text: plan > 0 ? '대기' : '금액 입력 필요' };
     }
     if (plan <= 0) return { cls: 'wait', text: '예상 미입력' };
     const d = Number(actual) - plan;
