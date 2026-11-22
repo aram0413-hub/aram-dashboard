@@ -574,3 +574,127 @@ h3 { font-size: 14px; margin: 0; letter-spacing: -0.2px; }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* ---------- 고정지출 (사업 / 주거) ---------- */
+.span-all { grid-column: 1 / -1; }
+.fixed-card { padding: 16px; margin-top: 14px; }
+#bizFixed .fixed-card { margin-top: 0; margin-bottom: 14px; }
+.fixed-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.fixed-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fixed-title h3 { font-family: var(--font-display); font-size: 17px; font-weight: 400; }
+.fx-month { font-size: 11.5px; font-weight: 800; color: var(--lav-deep); background: var(--lav-soft); border-radius: 999px; padding: 3px 9px; white-space: nowrap; }
+.fixed-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.fx-monthpick { padding: 2px 6px; box-shadow: none; border: 1px solid var(--line); }
+.fx-monthpick strong { min-width: 46px; font-size: 12.5px; }
+
+.fx-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.fx-kpi {
+  border: 1px solid var(--line); border-radius: 16px; padding: 10px 12px;
+  background: linear-gradient(160deg, #fff 0%, #fbf8ff 100%);
+  display: flex; flex-direction: column; gap: 2px; min-width: 0;
+}
+.fx-kpi > span { font-size: 11px; font-weight: 800; color: var(--ink-3); }
+.fx-kpi b { font-family: var(--font-display); font-size: 17px; color: var(--ink); letter-spacing: -0.3px; font-variant-numeric: tabular-nums; word-break: keep-all; }
+.fx-kpi small { font-size: 11px; color: var(--ink-3); }
+.fx-kpi.plan b { color: var(--lav-deep); }
+.fx-kpi.diff b.save { color: var(--mint-deep); }
+.fx-kpi.diff b.over { color: #d4532f; }
+.fx-note { font-size: 11.5px; color: var(--ink-3); margin: 9px 0 0; }
+
+.fx-group { margin-top: 14px; }
+.fx-group.annual { border-top: 1px dashed #eee7f8; padding-top: 13px; }
+.fx-group-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding-bottom: 4px; }
+.fx-group-head h4 { margin: 0; font-size: 12.5px; color: var(--ink); display: flex; align-items: center; gap: 6px; }
+.fx-group-head .count { font-size: 11px; color: var(--ink-3); font-weight: 800; background: #f7f4fc; border-radius: 999px; padding: 2px 8px; }
+.fx-annual-line { display: flex; align-items: center; gap: 10px 16px; flex-wrap: wrap; font-size: 11.8px; color: var(--ink-3); padding: 4px 2px 6px; }
+.fx-annual-line b { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+.fx-row { display: flex; align-items: center; gap: 10px; padding: 10px 4px; border-bottom: 1px dashed #f4f0fa; }
+.fx-row:last-child { border-bottom: 0; }
+.fx-row.is-paid { background: linear-gradient(90deg, rgba(221, 247, 239, .55), rgba(255, 255, 255, 0)); border-radius: 12px; }
+.fx-row.is-paid .fx-name { color: var(--mint-deep); }
+
+.fx-check {
+  flex: 0 0 auto; width: 23px; height: 23px; border-radius: 8px;
+  border: 1.8px solid #ded6ef; background: #fff; cursor: pointer;
+  display: grid; place-items: center; font-size: 12px; color: transparent; transition: all .15s;
+}
+.fx-check:hover { border-color: var(--mint); }
+.fx-row.is-paid .fx-check { background: var(--mint); border-color: var(--mint); color: #fff; }
+
+.fx-main { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px 14px; flex-wrap: wrap; }
+.fx-line1 { flex: 1 1 190px; min-width: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.fx-day {
+  flex: 0 0 auto; font-size: 10.5px; font-weight: 900; color: var(--ink-2);
+  background: #f4f1fb; border-radius: 8px; padding: 2.5px 7px; font-variant-numeric: tabular-nums;
+}
+.fx-name { font-size: 13px; font-weight: 800; color: var(--ink); word-break: keep-all; }
+.fx-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+.fx-tags .tag { font-size: 10px; font-weight: 700; }
+.fx-tags .tag.plain { background: #f6f4fb; color: var(--ink-3); }
+
+.fx-line2 { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.fx-money { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 800; color: var(--ink-3); }
+.fx-money input {
+  width: 104px; border: 1.5px solid var(--line); background: #fdfcff; border-radius: 10px;
+  padding: 6px 8px; font-family: inherit; font-size: 12.5px; font-weight: 700; color: var(--ink);
+  text-align: right; outline: none; font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield; appearance: textfield;
+}
+.fx-money input::-webkit-outer-spin-button,
+.fx-money input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.fx-money input::placeholder { color: #c8c2da; font-weight: 600; }
+.fx-money.actual input { border-color: #e3ddf3; background: #fff; }
+.fx-money input:focus { border-color: #d7c9f4; background: #fff; box-shadow: 0 0 0 3px rgba(154, 140, 247, .12); }
+.fx-money.actual input:focus { border-color: var(--pink); box-shadow: 0 0 0 3px rgba(255, 138, 181, .18); }
+.fx-unit { font-size: 10.5px; color: var(--ink-3); }
+.fx-diff { font-size: 11px; font-weight: 800; white-space: nowrap; }
+.fx-save { color: var(--mint-deep); }
+.fx-over { color: #d4532f; }
+.fx-same, .fx-wait { color: var(--ink-3); font-weight: 700; }
+
+.fx-tools { display: flex; gap: 2px; opacity: .4; transition: opacity .15s; }
+.fx-row:hover .fx-tools, .fx-row:focus-within .fx-tools { opacity: 1; }
+.fx-tools button { border: 0; background: none; cursor: pointer; font-size: 12px; padding: 4px; color: var(--ink-3); }
+.fx-tools button:hover { color: var(--pink-deep); }
+@media (hover: none) { .fx-tools { opacity: .55; } }
+
+/* 홈 요약 — 사업 / 주거 나란히 */
+.fx-home { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.fx-mini {
+  text-align: left; font-family: inherit; border: 1px solid var(--line); border-radius: 16px;
+  padding: 10px 12px; background: linear-gradient(160deg, #fff 0%, #fbf8ff 100%);
+  display: flex; flex-direction: column; gap: 3px; cursor: pointer; color: var(--ink); min-width: 0;
+  transition: border-color .15s, box-shadow .15s, transform .15s;
+}
+.fx-mini:hover { border-color: #ddd3f3; box-shadow: var(--shadow-soft); transform: translateY(-1px); }
+.fx-mini-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; font-weight: 800; color: var(--ink-2); }
+.fx-mini b { font-family: var(--font-display); font-size: clamp(15px, 3.4vw, 18px); color: var(--ink); letter-spacing: -0.3px; font-variant-numeric: tabular-nums; word-break: keep-all; }
+.fx-mini-sub { font-size: 11px; color: var(--ink-3); word-break: keep-all; }
+
+.fx-import-grid { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--ink-3); }
+.fx-import-grid b { color: var(--ink-2); }
+
+@media (max-width: 900px) {
+  .fx-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 600px) {
+  .fixed-card { padding: 14px; }
+  .fixed-title h3 { font-size: 16px; }
+  .fixed-tools { width: 100%; }
+  .fixed-tools .btn-sm { padding: 7px 10px; font-size: 11.8px; }
+  .fx-kpi { padding: 9px 10px; }
+  .fx-kpi b { font-size: 15.5px; }
+  .fx-main { flex-direction: column; align-items: stretch; gap: 6px; }
+  .fx-line1 { flex: 1 1 100%; }
+  .fx-line2 { width: 100%; gap: 6px; }
+  .fx-money { flex: 1 1 40%; min-width: 0; }
+  .fx-money input { width: 100%; min-width: 0; flex: 1 1 auto; }
+  .fx-row { align-items: flex-start; gap: 8px; padding: 10px 2px; }
+  .fx-tools { flex-direction: column; }
+  .fx-home { gap: 8px; }
+  .fx-mini { padding: 9px 10px; }
+  .fx-mini-top { font-size: 11px; }
+  .fx-mini-sub { font-size: 10.5px; }
+}

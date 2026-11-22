@@ -90,6 +90,7 @@
       memo: ''
     },
     money: { budgets: {}, entries: [] },
+    fixed: { items: [], months: {} },
     ui: { tab: 'home', kidsView: 'c5', month: monthKey() }
   });
 
@@ -120,6 +121,26 @@
     s.money.entries = Array.isArray((saved.money || {}).entries) ? saved.money.entries : [];
     s.money.budgets = (saved.money && saved.money.budgets) || {};
     s.money.entries = s.money.entries.map(normalizeEntry).filter(Boolean);
+
+    /* 고정지출: 항목 + 달마다의 실제 금액·납부 완료 표시 */
+    s.fixed = { items: [], months: {}, ...(saved.fixed || {}) };
+    s.fixed.items = Array.isArray((saved.fixed || {}).items)
+      ? saved.fixed.items.map((i) => normalizeFixedItem(i)).filter(Boolean) : [];
+    const fxMonths = {};
+    const rawMonths = (saved.fixed && saved.fixed.months) || {};
+    Object.keys(rawMonths).forEach((m) => {
+      if (!/^\d{4}-\d{2}$/.test(m)) return;
+      const src = rawMonths[m] || {};
+      const actual = {};
+      const paid = {};
+      Object.keys(src.actual || {}).forEach((id) => {
+        const v = Number(src.actual[id]);
+        if (Number.isFinite(v)) actual[id] = v;
+      });
+      Object.keys(src.paid || {}).forEach((id) => { if (src.paid[id]) paid[id] = true; });
+      if (Object.keys(actual).length || Object.keys(paid).length) fxMonths[m] = { actual, paid };
+    });
+    s.fixed.months = fxMonths;
     return s;
   }
 
@@ -140,6 +161,29 @@
     if (e.time) row.time = String(e.time).slice(0, 5);
     if (Number(e.discount)) row.discount = Number(e.discount) || 0;
     return row;
+  }
+
+  /* 고정지출 항목 한 줄 맞추기 (파일에서 온 값도 같은 모양으로) */
+  function normalizeFixedItem(raw, defaultScope) {
+    if (!raw || typeof raw !== 'object') return null;
+    const name = String(raw.name || raw.title || raw.text || '').trim().slice(0, 40);
+    if (!name) return null;
+    const toNum = (v) => {
+      const n = Number(String(v == null ? 0 : v).replace(/[^0-9.-]/g, ''));
+      return Number.isFinite(n) ? Math.max(0, Math.round(n)) : 0;
+    };
+    const scope = raw.scope === 'home' || raw.scope === 'biz' ? raw.scope : (defaultScope || 'biz');
+    return {
+      id: String(raw.id || uid()).slice(0, 40),
+      scope,
+      name,
+      amount: toNum(raw.amount),
+      day: String(raw.day == null ? '' : raw.day).trim().slice(0, 12),
+      method: String(raw.method || raw.pay || raw.memo || '').trim().slice(0, 40),
+      due: String(raw.due || '').trim().slice(0, 12),
+      note: String(raw.note || '').trim().slice(0, 80),
+      kind: raw.kind === 'annual' ? 'annual' : 'month'
+    };
   }
 
   function load() {
@@ -322,6 +366,7 @@
 
   /* ---------- 대시보드 ---------- */
   function renderHome() {
+    renderHomeFixed();
     const items = allItems();
     const total = items.length;
     const done = items.filter((i) => i.done).length;
@@ -527,6 +572,7 @@
     renderTodoList($('#bizToday'), state.biz.todos.filter((t) => (t.when || 'today') === 'today'), '오늘 할 일', 'biz', 'today');
     renderTodoList($('#bizWeek'), state.biz.todos.filter((t) => t.when === 'week'), '이번 주 할 일', 'biz', 'week');
     renderMemo($('#bizMemo'), 'biz', '📝 사업 메모', '거래처, 발주, 일정 등 챙길 내용을 적어 두세요.');
+    renderFixed('biz');
   }
 
   function renderTodoList(el, todos, title, key, when) {
@@ -667,6 +713,483 @@
             </div>`).join('')}
         </div>`;
       }).join('') : '<div class="empty-box">아직 기록이 없어요. 위에서 첫 기록을 추가해 보세요.</div>'}`;
+
+    renderFixed('home');
+  }
+
+  /* =========================================================
+     고정지출 (사업 / 주거)
+     - 예상 금액과 실제 나간 금액을 항목별로 나란히 기록
+     - 월간 고정과 연납·비정기(재산세·주민세 등)를 분리 집계
+     - 실제 금액·완료 표시는 달마다 따로 보관 (새 달은 자동으로 비어 있음)
+     ========================================================= */
+  const FX_SCOPES = {
+    biz: { label: '사업', icon: '📦', tab: 'biz', container: '#bizFixed' },
+    home: { label: '주거', icon: '💰', tab: 'money', container: '#moneyFixed' }
+  };
+  let fxSaveTimer = null;
+
+  const fxMonth = () => state.ui.month || monthKey();
+  const fxItemsOf = (scope) => state.fixed.items.filter((i) => i.scope === scope);
+
+  function fxRecord(month) {
+    const m = month || fxMonth();
+    const rec = state.fixed.months[m] || {};
+    if (!rec.actual || typeof rec.actual !== 'object') rec.actual = {};
+    if (!rec.paid || typeof rec.paid !== 'object') rec.paid = {};
+    state.fixed.months[m] = rec;
+    return rec;
+  }
+
+  function fxActualOf(id, month) {
+    const rec = state.fixed.months[month || fxMonth()];
+    const v = rec && rec.actual ? rec.actual[id] : undefined;
+    return v === undefined || v === null || v === '' ? null : Number(v);
+  }
+
+  function fxPaidOf(id, month) {
+    const rec = state.fixed.months[month || fxMonth()];
+    return !!(rec && rec.paid && rec.paid[id]);
+  }
+
+  function fxDayRank(day) {
+    const s = String(day || '').trim();
+    const md = s.match(/^(\d{1,2})\s*\/\s*(\d{1,2})$/);
+    if (md) return 100 + Number(md[1]) * 32 + Number(md[2]);
+    if (s === '말일' || s === '말') return 92;
+    if (/^\d{1,2}$/.test(s)) return Number(s);
+    if (s === '연납') return 96;
+    return 93;
+  }
+
+  const fxDayLabel = (day) => {
+    const s = String(day || '').trim();
+    if (!s) return '—';
+    return /^\d{1,2}$/.test(s) ? s + '일' : s;
+  };
+
+  const fxSort = (a, b) => fxDayRank(a.day) - fxDayRank(b.day)
+    || String(a.name).localeCompare(String(b.name), 'ko');
+
+  /* 같은 항목인지 판단하는 열쇠 — 다시 불러와도 중복되지 않게 */
+  const fxKey = (i) => [i.scope, i.kind || 'month', String(i.name).trim(), String(i.day || '').trim()].join('|');
+
+  function fxTotals(scope, month) {
+    const m = month || fxMonth();
+    const rec = state.fixed.months[m] || {};
+    const actuals = rec.actual || {};
+    const paids = rec.paid || {};
+    const hasActual = (id) => actuals[id] !== undefined && actuals[id] !== null && actuals[id] !== '';
+
+    const all = fxItemsOf(scope);
+    const monthly = all.filter((i) => (i.kind || 'month') !== 'annual').sort(fxSort);
+    const annual = all.filter((i) => i.kind === 'annual').sort(fxSort);
+
+    let actual = 0;
+    let planEntered = 0;
+    let entered = 0;
+    let paid = 0;
+    monthly.forEach((i) => {
+      if (hasActual(i.id)) {
+        actual += Number(actuals[i.id]) || 0;
+        planEntered += Number(i.amount) || 0;
+        entered++;
+      }
+      if (paids[i.id]) paid++;
+    });
+    const pending = monthly.filter((i) => !hasActual(i.id));
+
+    let annualActual = 0;
+    let annualEntered = 0;
+    annual.forEach((i) => {
+      if (hasActual(i.id)) { annualActual += Number(actuals[i.id]) || 0; annualEntered++; }
+    });
+
+    return {
+      month: m,
+      monthly,
+      annual,
+      plan: monthly.reduce((a, i) => a + (Number(i.amount) || 0), 0),
+      actual,
+      diff: actual - planEntered,
+      entered,
+      paid,
+      count: monthly.length,
+      pendingCount: pending.length,
+      pendingAmount: pending.reduce((a, i) => a + (Number(i.amount) || 0), 0),
+      annualPlan: annual.reduce((a, i) => a + (Number(i.amount) || 0), 0),
+      annualActual,
+      annualEntered,
+      annualCount: annual.length
+    };
+  }
+
+  function fxDiffInfo(item, actual) {
+    const plan = Number(item.amount) || 0;
+    if (actual == null) {
+      return { cls: 'wait', text: plan > 0 ? '실제 미입력' : '예상·실제 미입력' };
+    }
+    if (plan <= 0) return { cls: 'wait', text: '예상 미입력' };
+    const d = Number(actual) - plan;
+    if (d === 0) return { cls: 'same', text: '예상과 같음' };
+    if (d < 0) return { cls: 'save', text: won(-d) + ' 절약' };
+    return { cls: 'over', text: '+' + won(d) + ' 초과' };
+  }
+
+  const fxDiffHtml = (item, actual) => {
+    const info = fxDiffInfo(item, actual);
+    return `<span class="fx-${info.cls}">${escapeHtml(info.text)}</span>`;
+  };
+
+  function fxKpiHtml(t) {
+    const entered = t.entered > 0;
+    const diffText = entered
+      ? (t.diff === 0 ? '예상과 같아요' : (t.diff < 0 ? won(-t.diff) + ' 절약' : won(t.diff) + ' 초과'))
+      : '입력 전';
+    const diffCls = entered ? (t.diff < 0 ? 'save' : t.diff > 0 ? 'over' : '') : '';
+    return `
+      <div class="fx-kpi plan"><span>매달 예상 합계</span><b data-fx-out="plan">${won(t.plan)}</b><small>${t.count}건 · 월간 고정</small></div>
+      <div class="fx-kpi actual"><span>실제 나간 금액</span><b data-fx-out="actual">${won(t.actual)}</b><small data-fx-out="actualSub">${t.entered}건 입력 · ${t.paid}건 완료</small></div>
+      <div class="fx-kpi diff"><span>차액 (실제 − 예상)</span><b class="${diffCls}" data-fx-out="diff">${escapeHtml(diffText)}</b><small>입력한 항목 기준</small></div>
+      <div class="fx-kpi pending"><span>아직 미입력</span><b data-fx-out="pending">${t.pendingCount}건</b><small data-fx-out="pendingAmount">${won(t.pendingAmount)} 남음</small></div>`;
+  }
+
+  function fxRowHtml(item, m) {
+    const a = fxActualOf(item.id, m);
+    const paid = fxPaidOf(item.id, m);
+    const tags = [];
+    if (item.method) tags.push(`<span class="tag date">${escapeHtml(item.method)}</span>`);
+    if (item.due) tags.push(`<span class="tag plain">만기 ${escapeHtml(item.due)}</span>`);
+    if (item.note) tags.push(`<span class="tag plain">${escapeHtml(item.note)}</span>`);
+    return `<div class="fx-row${paid ? ' is-paid' : ''}" data-fx-row="${item.id}">
+      <button type="button" class="fx-check" data-fx-paid="${item.id}" aria-pressed="${paid}" aria-label="${escapeHtml(item.name)} 납부 완료 표시">✓</button>
+      <div class="fx-main">
+        <div class="fx-line1">
+          <span class="fx-day">${escapeHtml(fxDayLabel(item.day))}</span>
+          <span class="fx-name">${escapeHtml(item.name)}</span>
+          ${tags.length ? `<span class="fx-tags">${tags.join('')}</span>` : ''}
+        </div>
+        <div class="fx-line2">
+          <label class="fx-money"><span>예상</span><input type="number" inputmode="numeric" min="0" step="1" value="${item.amount ? item.amount : ''}" placeholder="0" data-fx-plan="${item.id}" aria-label="${escapeHtml(item.name)} 예상 금액"><span class="fx-unit">원</span></label>
+          <label class="fx-money actual"><span>실제</span><input type="number" inputmode="numeric" min="0" step="1" value="${a == null ? '' : a}" placeholder="미입력" data-fx-actual="${item.id}" aria-label="${escapeHtml(item.name)} 실제 금액"><span class="fx-unit">원</span></label>
+          <span class="fx-diff" data-fx-diff="${item.id}">${fxDiffHtml(item, a)}</span>
+        </div>
+      </div>
+      <div class="fx-tools">
+        <button type="button" data-fx-edit="${item.id}" aria-label="${escapeHtml(item.name)} 수정">✎</button>
+        <button type="button" data-fx-del="${item.id}" aria-label="${escapeHtml(item.name)} 삭제">🗑</button>
+      </div>
+    </div>`;
+  }
+
+  function renderFixed(scope) {
+    const meta = FX_SCOPES[scope];
+    if (!meta) return;
+    const el = $(meta.container);
+    if (!el) return;
+    const m = fxMonth();
+    const [y, mm] = m.split('-');
+    const t = fxTotals(scope, m);
+
+    el.innerHTML = `<div class="card fixed-card" id="fx-${scope}" data-scope="${scope}">
+      <header class="fixed-head">
+        <div class="fixed-title">
+          <h3>${meta.icon} ${meta.label} 고정지출</h3>
+          <span class="fx-month">${y}년 ${Number(mm)}월</span>
+        </div>
+        <div class="fixed-tools">
+          <div class="month-picker fx-monthpick">
+            <button class="icon-btn sm" type="button" data-fx-month="-1" aria-label="이전 달">◀</button>
+            <strong>${Number(mm)}월</strong>
+            <button class="icon-btn sm" type="button" data-fx-month="1" aria-label="다음 달">▶</button>
+          </div>
+          <button class="btn btn-ghost btn-sm" type="button" data-fx-import="${scope}">📥 고정지출 불러오기</button>
+          <button class="btn btn-ghost btn-sm" type="button" data-fx-export="${scope}">⬇️ 내보내기</button>
+          <button class="btn btn-ghost btn-sm" type="button" data-fx-reset="${scope}">🔄 이번 달 초기화</button>
+          <button class="btn ${scope === 'biz' ? 'btn-mint' : 'btn-pink'} btn-sm" type="button" data-fx-add="${scope}">＋ 항목</button>
+        </div>
+      </header>
+      <div class="fx-kpis">${fxKpiHtml(t)}</div>
+      <p class="fx-note">매달 나가는 월간 고정만 위 합계에 넣었어요. 연납·비정기는 아래에 따로 모았어요.</p>
+      <div class="fx-group">
+        <div class="fx-group-head">
+          <h4>매달 고정 <span class="count">${t.count}건</span></h4>
+          <span class="hint">예상 옆에 실제 나간 금액을 적으면 차액을 바로 보여드려요</span>
+        </div>
+        ${t.monthly.length ? t.monthly.map((i) => fxRowHtml(i, m)).join('') : '<div class="empty-box">아직 항목이 없어요. 📥 불러오기로 파일을 읽거나 ＋ 항목으로 추가해 보세요.</div>'}
+      </div>
+      <div class="fx-group annual">
+        <div class="fx-group-head">
+          <h4>연납·비정기 <span class="count">${t.annualCount}건</span></h4>
+          <span class="hint">매달 필요액에는 넣지 않아요</span>
+        </div>
+        <div class="fx-annual-line">
+          <span>연납·비정기 예상 <b data-fx-out="annualPlan">${won(t.annualPlan)}</b></span>
+          <span>실제 <b data-fx-out="annualActual">${won(t.annualActual)}</b></span>
+          <span class="hint" data-fx-out="annualSub">${t.annualEntered}건 입력</span>
+        </div>
+        ${t.annual.length ? t.annual.map((i) => fxRowHtml(i, m)).join('') : '<div class="empty-box">연납·비정기 항목이 없어요.</div>'}
+      </div>
+    </div>`;
+  }
+
+  const renderFixedBoth = () => { renderFixed('biz'); renderFixed('home'); };
+
+  /* 값을 입력하는 동안에는 행을 다시 그리지 않고 숫자만 갱신 (입력 중 커서가 튀지 않게) */
+  function updateFixedTotals(scope) {
+    const root = $('#fx-' + scope);
+    if (!root) return;
+    const m = fxMonth();
+    const t = fxTotals(scope, m);
+    const put = (key, html) => { const n = root.querySelector(`[data-fx-out="${key}"]`); if (n) n.innerHTML = html; };
+    put('plan', won(t.plan));
+    put('actual', won(t.actual));
+    put('actualSub', `${t.entered}건 입력 · ${t.paid}건 완료`);
+    const dEl = root.querySelector('[data-fx-out="diff"]');
+    if (dEl) {
+      const entered = t.entered > 0;
+      dEl.textContent = entered
+        ? (t.diff === 0 ? '예상과 같아요' : (t.diff < 0 ? won(-t.diff) + ' 절약' : won(t.diff) + ' 초과'))
+        : '입력 전';
+      dEl.className = entered ? (t.diff < 0 ? 'save' : t.diff > 0 ? 'over' : '') : '';
+    }
+    put('pending', `${t.pendingCount}건`);
+    put('pendingAmount', `${won(t.pendingAmount)} 남음`);
+    put('annualPlan', won(t.annualPlan));
+    put('annualActual', won(t.annualActual));
+    put('annualSub', `${t.annualEntered}건 입력`);
+    root.querySelectorAll('[data-fx-diff]').forEach((el) => {
+      const item = state.fixed.items.find((i) => i.id === el.dataset.fxDiff);
+      if (item) el.innerHTML = fxDiffHtml(item, fxActualOf(item.id, m));
+    });
+    renderHomeFixed();
+  }
+
+  function renderHomeFixed() {
+    const el = $('#homeFixed');
+    if (!el) return;
+    const m = monthKey();
+    const lbl = $('#homeFixedMonth');
+    if (lbl) lbl.textContent = `${Number(m.split('-')[1])}월 기준`;
+    if (!state.fixed.items.length) {
+      el.innerHTML = '<div class="empty-box">📥 고정지출 파일을 불러오면 사업·주거 매달 필요액을 나란히 보여드려요.</div>';
+      return;
+    }
+    el.innerHTML = Object.keys(FX_SCOPES).map((scope) => {
+      const meta = FX_SCOPES[scope];
+      const t = fxTotals(scope, m);
+      const entered = t.entered > 0;
+      const diffText = entered
+        ? (t.diff === 0 ? '예상과 같음' : (t.diff < 0 ? won(-t.diff) + ' 절약' : won(t.diff) + ' 초과'))
+        : '실제 입력 전';
+      const diffCls = entered ? (t.diff < 0 ? 'save' : t.diff > 0 ? 'over' : 'same') : 'wait';
+      return `<button type="button" class="fx-mini" data-goto="${meta.tab}" aria-label="${meta.label} 고정지출 자세히 보기">
+        <span class="fx-mini-top">${meta.icon} ${meta.label} <span class="pill ${scope === 'biz' ? 'pill-lav' : 'pill-pink'}">${t.count}건</span></span>
+        <b>${won(t.plan)}</b>
+        <span class="fx-mini-sub">실제 ${won(t.actual)} · <span class="fx-${diffCls}">${escapeHtml(diffText)}</span></span>
+        <span class="fx-mini-sub">${t.pendingCount ? `미입력 ${t.pendingCount}건 · ${won(t.pendingAmount)}` : '모두 입력했어요'}</span>
+      </button>`;
+    }).join('');
+  }
+
+  function openFixedModal({ scope, item }) {
+    const isEdit = !!item;
+    const cur = item || { scope: scope || 'biz', kind: 'month' };
+    openModal({
+      title: isEdit ? '고정지출 수정' : '고정지출 추가',
+      body: `
+        <div class="field"><label for="f-scope">구분</label>
+          <select id="f-scope">
+            <option value="biz" ${cur.scope === 'biz' ? 'selected' : ''}>📦 사업</option>
+            <option value="home" ${cur.scope === 'home' ? 'selected' : ''}>💰 주거</option>
+          </select>
+        </div>
+        ${fieldHtml({ label: '이름', id: 'f-name', value: cur.name || '', placeholder: '예: 통신비' })}
+        ${fieldHtml({ label: '예상 금액 (원)', id: 'f-amount', type: 'number', value: cur.amount || '', placeholder: '예: 30000', min: 0, step: 1 })}
+        <div class="field"><label for="f-kind">주기</label>
+          <select id="f-kind">
+            <option value="month" ${(cur.kind || 'month') === 'month' ? 'selected' : ''}>매달 고정</option>
+            <option value="annual" ${cur.kind === 'annual' ? 'selected' : ''}>연납·비정기</option>
+          </select>
+        </div>
+        ${fieldHtml({ label: '결제일', id: 'f-day', value: cur.day || '', placeholder: '13 · 말일 · 8/31 · 비정기' })}
+        ${fieldHtml({ label: '결제수단·메모', id: 'f-method', value: cur.method || '', placeholder: '예: 자동이체, 카드결제' })}
+        ${fieldHtml({ label: '만기일 (선택)', id: 'f-due', value: cur.due || '', placeholder: '예: 27.05.27' })}
+        ${fieldHtml({ label: '추가 메모 (선택)', id: 'f-note', value: cur.note || '', placeholder: '예: 만기 확인' })}`,
+      submitLabel: isEdit ? '수정' : '추가',
+      onSubmit: (root) => {
+        const name = root.querySelector('#f-name').value.trim();
+        if (!name) { toast('이름을 입력해 주세요.'); return false; }
+        const payload = {
+          scope: root.querySelector('#f-scope').value === 'home' ? 'home' : 'biz',
+          name: name.slice(0, 40),
+          amount: Math.max(0, Math.round(Number(root.querySelector('#f-amount').value) || 0)),
+          kind: root.querySelector('#f-kind').value === 'annual' ? 'annual' : 'month',
+          day: root.querySelector('#f-day').value.trim().slice(0, 12),
+          method: root.querySelector('#f-method').value.trim().slice(0, 40),
+          due: root.querySelector('#f-due').value.trim().slice(0, 12),
+          note: root.querySelector('#f-note').value.trim().slice(0, 80)
+        };
+        if (isEdit) Object.assign(item, payload);
+        else state.fixed.items.push({ id: uid(), ...payload });
+        save();
+        renderFixedBoth();
+        renderHomeFixed();
+        toast(isEdit ? '고정지출을 수정했어요.' : '고정지출을 추가했어요.');
+      }
+    });
+  }
+
+  function resetFixedMonth(scope) {
+    const m = fxMonth();
+    const meta = FX_SCOPES[scope];
+    const [y, mm] = m.split('-');
+    const rec = fxRecord(m);
+    const ids = fxItemsOf(scope).map((i) => i.id);
+    const target = ids.filter((id) => (rec.actual[id] !== undefined && rec.actual[id] !== '') || rec.paid[id]).length;
+    confirmModal({
+      title: '이번 달 초기화',
+      message: `${y}년 ${Number(mm)}월 ${meta.label} 고정지출의 실제 금액과 납부 완료 표시를 지울까요? 예상 금액은 그대로 남아요. (${target}건)`,
+      confirmLabel: '초기화',
+      onConfirm: () => {
+        ids.forEach((id) => { delete rec.actual[id]; delete rec.paid[id]; });
+        save();
+        renderFixedBoth();
+        renderHomeFixed();
+        toast('실제 금액과 완료 표시를 지웠어요. 예상 금액은 그대로예요.');
+      }
+    });
+  }
+
+  function exportFixed(scope) {
+    const meta = FX_SCOPES[scope];
+    const m = fxMonth();
+    const items = fxItemsOf(scope);
+    const months = {};
+    Object.keys(state.fixed.months).forEach((key) => {
+      const rec = state.fixed.months[key] || {};
+      const actual = {};
+      const paid = {};
+      items.forEach((i) => {
+        if (rec.actual && rec.actual[i.id] !== undefined && rec.actual[i.id] !== '') actual[i.id] = rec.actual[i.id];
+        if (rec.paid && rec.paid[i.id]) paid[i.id] = true;
+      });
+      if (Object.keys(actual).length || Object.keys(paid).length) months[key] = { actual, paid };
+    });
+    const t = fxTotals(scope, m);
+    const data = {
+      type: 'uri-jip-dashboard.fixed-expenses',
+      version: 1,
+      title: `${meta.label} 고정지출 ${m}`,
+      month: m,
+      summary: { monthlyCount: t.count, monthlyPlanTotal: t.plan, annualCount: t.annualCount, annualPlanTotal: t.annualPlan },
+      fixed: { items, months }
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `고정지출-${meta.label}-${m}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('고정지출 파일을 내려받았어요.');
+  }
+
+  /* 고정지출 파일 불러오기 — 기존 루틴·카드 내역·예산은 그대로 두고 항목만 더함 */
+  function importFixedFile(input, defaultScope) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    input.value = '';
+    const reader = new FileReader();
+    reader.onerror = () => toast('파일을 읽지 못했어요.');
+    reader.onload = () => {
+      let parsed = null;
+      try { parsed = JSON.parse(String(reader.result)); } catch (err) { parsed = null; }
+      if (!parsed) { toast('JSON 파일을 읽지 못했어요. 파일을 확인해 주세요.'); return; }
+
+      const src = Array.isArray(parsed) ? parsed
+        : (parsed.fixed && Array.isArray(parsed.fixed.items)) ? parsed.fixed.items
+        : Array.isArray(parsed.items) ? parsed.items
+        : (parsed.fixed && Array.isArray(parsed.fixed)) ? parsed.fixed
+        : null;
+      if (!src) { toast('고정지출 항목(items)을 찾지 못했어요. 고정지출 파일인지 확인해 주세요.'); return; }
+
+      const incoming = [];
+      src.forEach((raw) => {
+        const item = normalizeFixedItem(raw, defaultScope);
+        if (!item) return;
+        item._srcActual = raw && raw.actual !== undefined && raw.actual !== null && raw.actual !== '' ? raw.actual : null;
+        item._srcPaid = !!(raw && raw.paid);
+        incoming.push(item);
+      });
+      if (!incoming.length) { toast('불러올 고정지출 항목이 없어요.'); return; }
+
+      const byKey = new Map(state.fixed.items.map((i) => [fxKey(i), i]));
+      const fresh = [];
+      const matches = [];
+      incoming.forEach((i) => {
+        const key = fxKey(i);
+        const found = byKey.get(key);
+        if (found) { matches.push([i, found]); return; }
+        const withId = { ...i, id: state.fixed.items.some((x) => x.id === i.id) ? uid() : i.id };
+        delete withId._srcActual;
+        delete withId._srcPaid;
+        fresh.push(withId);
+        byKey.set(key, withId);
+        matches.push([i, withId]);
+      });
+
+      const month = String(parsed.month || fxMonth()).slice(0, 7);
+      const srcMonths = (parsed.fixed && parsed.fixed.months) || parsed.months || null;
+      const skipped = incoming.length - fresh.length;
+      const sumOf = (scope) => incoming
+        .filter((i) => i.scope === scope && i.kind !== 'annual')
+        .reduce((a, i) => a + (Number(i.amount) || 0), 0);
+      const countOf = (scope) => incoming.filter((i) => i.scope === scope && i.kind !== 'annual').length;
+
+      openModal({
+        title: '📥 고정지출 파일 불러오기',
+        body: `
+          <p class="hint" style="font-size:12.5px;color:var(--ink-2);line-height:1.7">${escapeHtml(parsed.title || '고정지출 파일')}<br>파일: ${escapeHtml(file.name)}</p>
+          <div class="fx-import-grid">
+            <span>읽은 항목 <b>${incoming.length}건</b></span>
+            <span>새로 추가 <b>${fresh.length}건</b></span>
+            ${skipped ? `<span>이미 있어 건너뜀 <b>${skipped}건</b></span>` : ''}
+          </div>
+          <div class="fx-import-grid">
+            <span>📦 사업 월간 <b>${countOf('biz')}건 · ${won(sumOf('biz'))}</b></span>
+            <span>💰 주거 월간 <b>${countOf('home')}건 · ${won(sumOf('home'))}</b></span>
+          </div>
+          <p class="hint" style="font-size:12.5px;color:var(--ink-2);line-height:1.7">기존 루틴·카드 내역·예산은 그대로 두고 고정지출 항목만 더해요. 실제 금액과 완료 표시는 비어 있는 칸만 채워요. 이 내용은 이 기기 브라우저에만 저장되고 인터넷에 올라가지 않아요.</p>`,
+        submitLabel: fresh.length ? `${fresh.length}건 추가` : '닫기',
+        onSubmit: () => {
+          if (fresh.length) state.fixed.items = state.fixed.items.concat(fresh);
+          const rec = fxRecord(month);
+          matches.forEach(([srcItem, target]) => {
+            const srcRec = (srcMonths && srcMonths[month]) || {};
+            const srcActual = srcRec.actual ? srcRec.actual[srcItem.id] : undefined;
+            const inlineActual = srcItem._srcActual;
+            const value = srcActual !== undefined && srcActual !== null && srcActual !== ''
+              ? srcActual
+              : (inlineActual !== undefined && inlineActual !== null && inlineActual !== '' ? inlineActual : null);
+            if (value !== null) {
+              const has = rec.actual[target.id] !== undefined && rec.actual[target.id] !== '';
+              if (!has) rec.actual[target.id] = Math.max(0, Math.round(Number(value) || 0));
+            }
+            if ((srcRec.paid && srcRec.paid[srcItem.id]) || srcItem._srcPaid) rec.paid[target.id] = true;
+          });
+          state.ui.month = month;
+          save();
+          renderFixedBoth();
+          renderHomeFixed();
+          if (RENDERERS[state.ui.tab]) RENDERERS[state.ui.tab]();
+          toast(fresh.length ? `${fresh.length}건을 고정지출에 더했어요.` : '이미 있는 항목이라 새로 더하지 않았어요.');
+        }
+      });
+    };
+    reader.readAsText(file);
   }
 
   /* ---------- 탭 전환 ---------- */
@@ -1124,6 +1647,77 @@
       return;
     }
 
+    // 고정지출
+    const fxPaidBtn = t.closest('[data-fx-paid]');
+    if (fxPaidBtn) {
+      const id = fxPaidBtn.dataset.fxPaid;
+      const rec = fxRecord(fxMonth());
+      if (rec.paid[id]) delete rec.paid[id]; else rec.paid[id] = true;
+      save();
+      const row = fxPaidBtn.closest('.fx-row');
+      if (row) row.classList.toggle('is-paid', !!rec.paid[id]);
+      fxPaidBtn.setAttribute('aria-pressed', rec.paid[id] ? 'true' : 'false');
+      const card = fxPaidBtn.closest('[data-scope]');
+      if (card) updateFixedTotals(card.dataset.scope);
+      return;
+    }
+
+    const fxAddBtn = t.closest('[data-fx-add]');
+    if (fxAddBtn) { openFixedModal({ scope: fxAddBtn.dataset.fxAdd }); return; }
+
+    const fxEditBtn = t.closest('[data-fx-edit]');
+    if (fxEditBtn) {
+      const item = state.fixed.items.find((i) => i.id === fxEditBtn.dataset.fxEdit);
+      if (item) openFixedModal({ scope: item.scope, item });
+      return;
+    }
+
+    const fxDelBtn = t.closest('[data-fx-del]');
+    if (fxDelBtn) {
+      const item = state.fixed.items.find((i) => i.id === fxDelBtn.dataset.fxDel);
+      if (!item) return;
+      confirmModal({
+        title: '고정지출 삭제',
+        message: `'${item.name}' 항목을 지울까요? 기록된 실제 금액과 완료 표시도 함께 지워져요.`,
+        onConfirm: () => {
+          state.fixed.items = state.fixed.items.filter((i) => i.id !== item.id);
+          Object.keys(state.fixed.months).forEach((m) => {
+            const rec = state.fixed.months[m] || {};
+            if (rec.actual) delete rec.actual[item.id];
+            if (rec.paid) delete rec.paid[item.id];
+          });
+          save();
+          renderFixedBoth();
+          renderHomeFixed();
+          toast('삭제했어요.');
+        }
+      });
+      return;
+    }
+
+    const fxMonthBtn = t.closest('[data-fx-month]');
+    if (fxMonthBtn) {
+      state.ui.month = shiftMonth(fxMonth(), Number(fxMonthBtn.dataset.fxMonth) || 0);
+      save();
+      renderFixedBoth();
+      renderMoney();
+      renderHomeFixed();
+      return;
+    }
+
+    const fxResetBtn = t.closest('[data-fx-reset]');
+    if (fxResetBtn) { resetFixedMonth(fxResetBtn.dataset.fxReset); return; }
+
+    const fxExportBtn = t.closest('[data-fx-export]');
+    if (fxExportBtn) { exportFixed(fxExportBtn.dataset.fxExport); return; }
+
+    const fxImportBtn = t.closest('[data-fx-import]');
+    if (fxImportBtn) {
+      const fi = $('#fixedFileInput');
+      if (fi) { fi.dataset.scope = fxImportBtn.dataset.fxImport; fi.click(); }
+      return;
+    }
+
     // 가계부
     const setBudget = t.closest('[data-set-budget]');
     if (setBudget) { openBudgetModal(); return; }
@@ -1191,8 +1785,27 @@
     toast('기록을 추가했어요.');
   });
 
-  // 메모 자동 저장
+  // 메모 자동 저장 / 고정지출 금액 입력
   document.addEventListener('input', (e) => {
+    const fxInput = e.target.closest('[data-fx-plan], [data-fx-actual]');
+    if (fxInput) {
+      const card = fxInput.closest('[data-scope]');
+      const scope = card ? card.dataset.scope : 'biz';
+      const raw = fxInput.value === '' ? '' : Math.max(0, Math.round(Number(fxInput.value) || 0));
+      if (fxInput.dataset.fxPlan) {
+        const item = state.fixed.items.find((i) => i.id === fxInput.dataset.fxPlan);
+        if (item) item.amount = raw === '' ? 0 : raw;
+      } else {
+        const id = fxInput.dataset.fxActual;
+        const rec = fxRecord(fxMonth());
+        if (raw === '') delete rec.actual[id]; else rec.actual[id] = raw;
+      }
+      clearTimeout(fxSaveTimer);
+      fxSaveTimer = setTimeout(save, 400);
+      updateFixedTotals(scope);
+      return;
+    }
+
     const ta = e.target.closest('[data-memo]');
     if (!ta) return;
     const key = ta.dataset.memo;
@@ -1230,6 +1843,9 @@
 
   const moneyFileInput = $('#moneyFileInput');
   if (moneyFileInput) moneyFileInput.addEventListener('change', () => importMoneyFile(moneyFileInput));
+
+  const fixedFileInput = $('#fixedFileInput');
+  if (fixedFileInput) fixedFileInput.addEventListener('change', () => importFixedFile(fixedFileInput, fixedFileInput.dataset.scope || 'biz'));
 
   setInterval(() => { renderClock(); renderCountdown(); }, 1000 * 20);
 

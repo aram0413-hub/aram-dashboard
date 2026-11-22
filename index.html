@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Jua&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
 <div class="blobs" aria-hidden="true">
@@ -112,6 +112,14 @@
         </header>
         <div id="homeMoney" class="summary-body"></div>
       </article>
+
+      <article class="card summary span-all" aria-labelledby="home-fixed-h">
+        <header class="summary-head">
+          <h2 id="home-fixed-h">💸 이번 달 고정지출</h2>
+          <span class="hint" id="homeFixedMonth"></span>
+        </header>
+        <div id="homeFixed" class="fx-home"></div>
+      </article>
     </div>
   </section>
 
@@ -156,10 +164,11 @@
     <div class="panel-head">
       <div>
         <h2 class="panel-title">📦 에이치엠유통</h2>
-        <p class="panel-desc">사업 관련 할 일과 챙길 일정을 모아 둬요.</p>
+        <p class="panel-desc">사업 고정지출과 챙길 일을 함께 봐요.</p>
       </div>
       <button class="btn btn-mint" type="button" data-add-todo="biz">＋ 할 일 추가</button>
     </div>
+    <div id="bizFixed"></div>
     <div class="two-col">
       <div class="col">
         <div class="card list-card" id="bizToday"></div>
@@ -176,7 +185,7 @@
     <div class="panel-head">
       <div>
         <h2 class="panel-title">💰 집 가계부</h2>
-        <p class="panel-desc">이번 달 예산과 수입·지출을 기록해요.</p>
+        <p class="panel-desc">이번 달 예산·지출과 주거 고정지출을 함께 봐요.</p>
       </div>
       <div class="head-tools">
         <button class="btn btn-ghost btn-sm" type="button" id="moneyImportBtn" title="카드 내역 JSON 파일을 이 기기에서만 불러와요">📥 파일로 불러오기</button>
@@ -188,11 +197,14 @@
       </div>
     </div>
     <input type="file" id="moneyFileInput" accept="application/json,.json" class="file-input">
+    <input type="file" id="fixedFileInput" accept="application/json,.json" class="file-input">
 
     <div class="money-top">
       <div class="card budget-card" id="budgetCard"></div>
       <div class="card add-card" id="moneyForm"></div>
     </div>
+
+    <div id="moneyFixed"></div>
 
     <div class="card cat-card" id="catCard"></div>
     <div class="card list-card" id="moneyList"></div>
@@ -220,6 +232,6 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="app.js?v=8"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>
