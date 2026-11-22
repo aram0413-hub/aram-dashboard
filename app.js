@@ -1490,8 +1490,8 @@
           <button type="button" class="link-btn" data-sales-edit="${key}">${rec ? '수정' : '입력'}</button>
         </div>
         <div class="sc-grid">
-          <div class="sc-cell"><span>매출</span><b>${rec ? fmtNum(rec.sales.supply) : '—'}</b><small>세액 ${rec ? fmtNum(rec.sales.vat) : '—'} · ${rec ? rec.sales.count : 0}건</small></div>
-          <div class="sc-cell"><span>매입(세금계산서)</span><b>${rec ? fmtNum(rec.purchase.supply) : '—'}</b><small>세액 ${rec ? fmtNum(rec.purchase.vat) : '—'} · ${rec ? rec.purchase.count : 0}건</small></div>
+          <div class="sc-cell"><span>매출</span><b>${rec ? fmtNum(rec.sales.supply) : '—'}</b><small>세액 ${rec ? fmtNum(rec.sales.vat) : '—'}</small><small>건수 ${rec ? rec.sales.count : 0}</small></div>
+          <div class="sc-cell"><span>매입(세금계산서)</span><b>${rec ? fmtNum(rec.purchase.supply) : '—'}</b><small>세액 ${rec ? fmtNum(rec.purchase.vat) : '—'}</small><small>건수 ${rec ? rec.purchase.count : 0}</small></div>
           <div class="sc-cell"><span>사업용카드</span><b>${cardOn ? fmtNum(rec.card.deductible.supply) : '—'}</b><small>전체 ${cardOn ? fmtNum(rec.card.total.supply) : '—'}</small></div>
         </div>
         <div class="sc-foot">순수지 ${rec ? salesNetHtml(net) : '<span class="dash">—</span>'}${rec && rec.memo ? ` · <span class="sc-memo">⚠️ ${escapeHtml(rec.memo)}</span>` : ''}</div>
