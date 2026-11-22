@@ -770,7 +770,7 @@ h3 { font-size: 14px; margin: 0; letter-spacing: -0.2px; }
 .sc-foot .sales-net { font-size: 11.5px; }
 .sc-memo { color: #b45309; }
 
-.sales-sub { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.sales-sub { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; align-items: start; }
 .sales-sub.one { grid-template-columns: minmax(0, 1fr); }
 .sales-panel { border: 1px solid var(--line); border-radius: 16px; padding: 12px; background: #fff; min-width: 0; }
 .sales-panel h4 { margin: 0 0 9px; font-size: 12.5px; color: var(--ink); display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap; }
