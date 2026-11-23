@@ -235,6 +235,7 @@
     error: '', applying: false, pushing: false, pending: false
   };
   const CLOUD_BACKUP_KEY = STORAGE_KEY + '.cloud-backup';
+  const CLOUD_META_KEY = STORAGE_KEY + '.cloud-meta';
   let cloudPushTimer = null;
   let lastPushedJson = '';
   let pendingRemote = null;
@@ -260,6 +261,16 @@
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) localStorage.setItem(CLOUD_BACKUP_KEY, raw);
+    } catch (err) { console.warn(err); }
+  }
+
+  /* 이 기기가 마지막으로 클라우드와 맞춘 내용(내용 서명)을 기억해 둔다 */
+  function cloudMetaRead() {
+    try { return JSON.parse(localStorage.getItem(CLOUD_META_KEY) || '{}') || {}; } catch (err) { return {}; }
+  }
+  function cloudMetaWrite(uid, key) {
+    try {
+      localStorage.setItem(CLOUD_META_KEY, JSON.stringify({ uid: uid || '', key: key || '', at: new Date().toISOString() }));
     } catch (err) { console.warn(err); }
   }
 
