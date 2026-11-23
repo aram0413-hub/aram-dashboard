@@ -226,7 +226,359 @@
       toast('저장 공간이 가득 찼어요. 설정에서 백업 후 초기화해 주세요.');
       console.warn(err);
     }
+    cloudSchedulePush();
   }
+
+  /* ---------- ☁️ 클라우드 동기화 (Google 로그인 · Firestore) ---------- */
+  const CLOUD = {
+    ready: false, user: null, status: 'off', lastSync: null,
+    error: '', applying: false, pushing: false, pending: false
+  };
+  const CLOUD_BACKUP_KEY = STORAGE_KEY + '.cloud-backup';
+  let cloudPushTimer = null;
+  let lastPushedJson = '';
+  let pendingRemote = null;
+  let pendingRemoteTimer = null;
+
+  const cloudApi = () => window.DashboardSync || null;
+
+  function cloudPayloadKey(s) {
+    try {
+      const copy = JSON.parse(JSON.stringify(s));
+      delete copy.ui;
+      delete copy.updatedAt;
+      return JSON.stringify(copy);
+    } catch (err) {
+      return String(Date.now());
+    }
+  }
+
+  function backupLocalState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) localStorage.setItem(CLOUD_BACKUP_KEY, raw);
+    } catch (err) { console.warn(err); }
+  }
+
+  function cloudStatusLabel() {
+    if (!CLOUD.ready) return '동기화 연결 준비 중…';
+    if (CLOUD.error === 'permission-denied' || CLOUD.status === 'denied') return '이 계정으로는 동기화할 수 없어요';
+    if (!CLOUD.user) return '로그인하면 폰·패드가 같은 내용을 봐요';
+    if (CLOUD.status === 'saving' || CLOUD.status === 'dirty') return '저장하는 중…';
+    if (CLOUD.status === 'offline') return '연결되면 다시 저장할게요';
+    if (CLOUD.lastSync) return '마지막 동기화 ' + timeFmtKo.format(CLOUD.lastSync);
+    return '동기화 준비됨';
+  }
+
+  function cloudBtnLabel() {
+    if (!CLOUD.ready) return '동기화';
+    if (CLOUD.error === 'permission-denied' || CLOUD.status === 'denied') return '계정 확인';
+    if (!CLOUD.user) return '로그인';
+    if (CLOUD.status === 'saving' || CLOUD.status === 'dirty') return '저장 중';
+    if (CLOUD.status === 'offline') return '오프라인';
+    return '동기화';
+  }
+
+  function cloudDotState() {
+    if (!CLOUD.ready) return 'idle';
+    if (CLOUD.error === 'permission-denied' || CLOUD.status === 'denied') return 'warn';
+    if (!CLOUD.user) return 'off';
+    if (CLOUD.status === 'saving' || CLOUD.status === 'dirty') return 'busy';
+    if (CLOUD.status === 'offline') return 'warn';
+    return 'on';
+  }
+
+  function renderCloudUi() {
+    const btn = $('#cloudBtn');
+    if (btn) {
+      const dot = btn.querySelector('.cloud-dot');
+      const label = btn.querySelector('.cloud-btn-label');
+      if (dot) {
+        dot.className = 'cloud-dot is-' + cloudDotState();
+      }
+      if (label) label.textContent = cloudBtnLabel();
+      btn.classList.toggle('is-signed-in', !!CLOUD.user);
+      btn.setAttribute('title', CLOUD.user
+        ? `${CLOUD.user.displayName || '로그인됨'} · ${cloudStatusLabel()}`
+        : 'Google 로그인으로 폰·패드 실시간 동기화');
+      btn.setAttribute('aria-label', CLOUD.user ? '동기화 상태: ' + cloudStatusLabel() : 'Google 로그인(동기화)');
+    }
+    const panel = $('#cloudPanel');
+    if (panel) renderCloudPanel(panel);
+  }
+
+  function renderCloudPanel(root) {
+    const signedIn = !!CLOUD.user;
+    const denied = CLOUD.error === 'permission-denied' || CLOUD.status === 'denied';
+    let html = `<p class="hint">${escapeHtml(cloudStatusLabel())}</p>`;
+    if (denied) {
+      html += `<p class="hint" style="color:#d4532f">로그인한 Google 계정에는 이 대시보드의 저장 공간 권한이 없어요. 평소 쓰는 계정으로 다시 로그인해 주세요.</p>`;
+    }
+    if (signedIn) {
+      html += `<div class="cloud-who"><span class="cloud-avatar" aria-hidden="true">☁️</span><span><b>${escapeHtml(CLOUD.user.displayName || '로그인됨')}</b><br><span class="hint">이 계정으로만 동기화돼요</span></span></div>`;
+      html += `<div class="data-btns">
+        <button type="button" class="btn btn-ghost" data-cloud="push">⬆️ 지금 올리기</button>
+        <button type="button" class="btn btn-ghost" data-cloud="pull">⬇️ 클라우드에서 가져오기</button>
+        <button type="button" class="btn btn-danger" data-cloud="out">로그아웃</button>
+      </div>`;
+      html += `<p class="hint">로그아웃해도 이 기기에 저장된 내용은 그대로 남아요. 다른 기기와 같은 내용을 보려면 같은 Google 계정으로 로그인하세요.</p>`;
+    } else {
+      html += `<p class="hint">이 기기 내용은 그대로 두고, 같은 Google 계정으로 로그인하면 폰·패드가 같은 내용을 실시간으로 봐요.</p>`;
+      html += `<div class="data-btns">
+        <button type="button" class="btn btn-pink" data-cloud="in">🔐 Google 로그인(동기화)</button>
+      </div>`;
+      html += `<p class="hint">로그인하지 않아도 지금처럼 이 기기에만 저장돼요.</p>`;
+    }
+    root.innerHTML = html;
+    $$('[data-cloud]', root).forEach((b) => {
+      b.addEventListener('click', () => {
+        const act = b.dataset.cloud;
+        if (act === 'in') cloudSignIn();
+        else if (act === 'out') cloudSignOutNow();
+        else if (act === 'push') cloudPushNow();
+        else if (act === 'pull') cloudPullNow();
+      });
+    });
+  }
+
+  async function cloudSignIn() {
+    const S = cloudApi();
+    if (!S || !CLOUD.ready) { toast('동기화 연결을 준비하고 있어요. 잠시 후 다시 눌러 주세요.'); return; }
+    toast('Google 로그인 창을 열었어요…');
+    try {
+      await S.signIn();
+    } catch (err) {
+      const code = (err && err.code) || '';
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        toast('로그인 창을 닫았어요.');
+        return;
+      }
+      if (code === 'auth/unauthorized-domain') {
+        toast('이 주소에서는 로그인할 수 없어요. (도메인 승인 필요)');
+      } else if (code === 'auth/network-request-failed') {
+        toast('인터넷 연결을 확인하고 다시 눌러 주세요.');
+      } else {
+        toast('로그인하지 못했어요. (' + (code || '알 수 없는 오류') + ')');
+      }
+      console.warn(err);
+    }
+  }
+
+  async function cloudSignOutNow() {
+    const S = cloudApi();
+    if (!S || !CLOUD.user) return;
+    if (!window.confirm('이 기기에서만 로그아웃할까요? 저장된 내용은 그대로 남아요.')) return;
+    try {
+      await S.signOutNow();
+      if (CLOUD.status !== 'off') toast('로그아웃했어요. 이 기기 내용은 그대로예요.');
+    } catch (err) {
+      toast('로그아웃하지 못했어요. 잠시 후 다시 시도해 주세요.');
+      console.warn(err);
+    }
+  }
+
+  function onCloudBtnClick() {
+    if (!CLOUD.ready) { toast('동기화 연결을 준비하고 있어요. 잠시 후 다시 눌러 주세요.'); return; }
+    if (!CLOUD.user) { cloudSignIn(); return; }
+    if (CLOUD.error === 'permission-denied' || CLOUD.status === 'denied') { openSettings(); return; }
+    cloudPush({ force: true }).then(() => toast('☁️ ' + cloudStatusLabel()));
+  }
+
+  async function cloudPushNow() {
+    if (!CLOUD.user) { cloudSignIn(); return; }
+    await cloudPush({ force: true });
+    if (CLOUD.status === 'synced') toast('☁️ 이 기기 내용을 클라우드에 올렸어요.');
+  }
+
+  async function cloudPullNow() {
+    const S = cloudApi();
+    if (!S || !CLOUD.user) { cloudSignIn(); return; }
+    if (!window.confirm('클라우드에 저장된 내용으로 이 기기를 맞출까요? (지금 이 기기 내용은 자동으로 백업해 둬요)')) return;
+    try {
+      const remote = await S.read();
+      if (!remote || !remote.state) { toast('클라우드에 저장된 내용이 아직 없어요.'); return; }
+      applyRemoteState(remote.state, remote.updatedAt, { silent: false });
+    } catch (err) {
+      CLOUD.error = (err && err.code) || 'error';
+      CLOUD.status = CLOUD.error === 'permission-denied' ? 'denied' : 'offline';
+      renderCloudUi();
+      toast('클라우드 내용을 가져오지 못했어요.');
+      console.warn(err);
+    }
+  }
+
+  function cloudSchedulePush() {
+    if (!CLOUD.user || CLOUD.applying) return;
+    clearTimeout(cloudPushTimer);
+    CLOUD.status = 'dirty';
+    renderCloudUi();
+    cloudPushTimer = setTimeout(() => { cloudPush({}); }, 1500);
+  }
+
+  async function cloudPush(opts) {
+    const S = cloudApi();
+    const o = opts || {};
+    if (!S || !CLOUD.user || CLOUD.applying) return;
+    if (CLOUD.pushing) { CLOUD.pending = true; return; }
+    const key = cloudPayloadKey(state);
+    if (!o.force && key === lastPushedJson) {
+      CLOUD.status = 'synced';
+      renderCloudUi();
+      return;
+    }
+    CLOUD.pushing = true;
+    CLOUD.status = 'saving';
+    renderCloudUi();
+    try {
+      await S.write(state);
+      lastPushedJson = key;
+      CLOUD.error = '';
+      CLOUD.status = 'synced';
+      CLOUD.lastSync = new Date();
+    } catch (err) {
+      CLOUD.error = (err && err.code) || 'error';
+      CLOUD.status = CLOUD.error === 'permission-denied' ? 'denied' : 'offline';
+      console.warn(err);
+    } finally {
+      CLOUD.pushing = false;
+      renderCloudUi();
+      if (CLOUD.pending) {
+        CLOUD.pending = false;
+        clearTimeout(cloudPushTimer);
+        cloudPushTimer = setTimeout(() => { cloudPush({}); }, 600);
+      }
+    }
+  }
+
+  function applyRemoteState(remote, at, opts) {
+    const o = opts || {};
+    CLOUD.applying = true;
+    backupLocalState();
+    const next = mergeState(remote);
+    next.updatedAt = at || new Date().toISOString();
+    state = next;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (err) { console.warn(err); }
+    const tab = (state.ui && RENDERERS[state.ui.tab]) ? state.ui.tab : 'home';
+    applyLabels();
+    renderAll();
+    showTab(tab);
+    CLOUD.applying = false;
+    CLOUD.status = 'synced';
+    CLOUD.lastSync = new Date();
+    lastPushedJson = cloudPayloadKey(state);
+    renderCloudUi();
+    if (!o.silent) toast('☁️ 클라우드 내용으로 맞췄어요. (이전 내용은 백업해 뒀어요)');
+  }
+
+  function cloudIsTyping() {
+    const el = document.activeElement;
+    return !!(el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+  }
+
+  function cloudDrainRemote() {
+    clearTimeout(pendingRemoteTimer);
+    const item = pendingRemote;
+    if (!item) return;
+    if (cloudIsTyping()) { pendingRemoteTimer = setTimeout(cloudDrainRemote, 3000); return; }
+    pendingRemote = null;
+    const localAt = state.updatedAt ? Date.parse(state.updatedAt) : 0;
+    if ((Date.parse(item.updatedAt) || 0) <= localAt + 800) return;
+    applyRemoteState(item.state, item.updatedAt, { silent: true });
+    toast('☁️ 다른 기기의 변경을 불러왔어요.');
+  }
+
+  function cloudOnRemote(data, meta) {
+    if (!data || !data.state || !data.updatedAt) return;
+    if (meta && meta.pending) return;
+    if (CLOUD.applying) return;
+    const remoteAt = Date.parse(data.updatedAt) || 0;
+    const localAt = state.updatedAt ? Date.parse(state.updatedAt) : 0;
+    if (remoteAt <= localAt + 800) return;
+    pendingRemote = { state: data.state, updatedAt: data.updatedAt };
+    if (cloudIsTyping()) {
+      clearTimeout(pendingRemoteTimer);
+      pendingRemoteTimer = setTimeout(cloudDrainRemote, 3000);
+      return;
+    }
+    cloudDrainRemote();
+  }
+
+  async function cloudReconcile() {
+    const S = cloudApi();
+    if (!S || !CLOUD.user) return;
+    CLOUD.status = 'saving';
+    renderCloudUi();
+    try {
+      const remote = await S.read();
+      const remoteAt = remote && remote.updatedAt ? Date.parse(remote.updatedAt) : 0;
+      const localAt = state.updatedAt ? Date.parse(state.updatedAt) : 0;
+      if (!remote || !remote.state) {
+        await S.write(state);
+        lastPushedJson = cloudPayloadKey(state);
+        CLOUD.status = 'synced';
+        CLOUD.lastSync = new Date();
+        toast('☁️ 이 기기 내용을 클라우드에 올렸어요.');
+      } else if (remoteAt > localAt + 1000) {
+        applyRemoteState(remote.state, remote.updatedAt, { silent: true });
+        toast('☁️ 클라우드 내용으로 맞췄어요. (이전 내용은 백업해 뒀어요)');
+      } else if (localAt > remoteAt + 1000) {
+        await S.write(state);
+        lastPushedJson = cloudPayloadKey(state);
+        CLOUD.status = 'synced';
+        CLOUD.lastSync = new Date();
+        toast('☁️ 이 기기 내용을 클라우드에 올렸어요.');
+      } else {
+        lastPushedJson = cloudPayloadKey(state);
+        CLOUD.status = 'synced';
+        CLOUD.lastSync = new Date();
+      }
+      S.watch(cloudOnRemote);
+    } catch (err) {
+      CLOUD.error = (err && err.code) || 'error';
+      CLOUD.status = CLOUD.error === 'permission-denied' ? 'denied' : 'offline';
+      if (CLOUD.error === 'permission-denied') toast('이 Google 계정으로는 동기화할 수 없어요.');
+      console.warn(err);
+    }
+    renderCloudUi();
+  }
+
+  async function cloudOnAuth(user) {
+    CLOUD.user = user || null;
+    CLOUD.error = '';
+    if (!user) {
+      CLOUD.status = 'off';
+      CLOUD.lastSync = null;
+      lastPushedJson = '';
+      pendingRemote = null;
+      try { const S = cloudApi(); if (S) S.unwatch(); } catch (err) { console.warn(err); }
+      renderCloudUi();
+      return;
+    }
+    await cloudReconcile();
+  }
+
+  function cloudBoot() {
+    const S = cloudApi();
+    if (!S) { renderCloudUi(); return; }
+    CLOUD.ready = true;
+    S.onAuth(cloudOnAuth);
+    renderCloudUi();
+  }
+
+  window.addEventListener('dashboard-cloud-ready', cloudBoot);
+  window.addEventListener('dashboard-cloud-failed', (e) => {
+    CLOUD.ready = false;
+    CLOUD.error = 'load_failed';
+    console.warn('동기화 모듈을 불러오지 못했어요.', e && e.detail);
+    renderCloudUi();
+  });
+  window.addEventListener('dashboard-cloud-error', (e) => {
+    CLOUD.error = (e && e.detail) || 'error';
+    if (CLOUD.error === 'permission-denied') CLOUD.status = 'denied';
+    renderCloudUi();
+  });
+  if (window.DashboardSync && window.DashboardSync.ready) cloudBoot();
+  setTimeout(() => { if (!CLOUD.ready) renderCloudUi(); }, 9000);
 
   /* ---------- 작은 도구 ---------- */
   const $ = (sel, root) => (root || document).querySelector(sel);
@@ -2196,8 +2548,13 @@
         </div>
 
         <div class="settings-block">
+          <h3>☁️ 클라우드 동기화 (Google 로그인)</h3>
+          <div class="cloud-panel" id="cloudPanel"></div>
+        </div>
+
+        <div class="settings-block">
           <h3>📦 데이터 백업 / 복원</h3>
-          <p class="hint">입력한 내용은 이 브라우저에 저장돼요. 다른 기기로 옮기려면 아래에서 파일로 내보낸 뒤, 그 기기에서 가져오기를 눌러 주세요.</p>
+          <p class="hint">입력한 내용은 이 브라우저에 저장되고, Google 로그인하면 클라우드에도 함께 저장돼요. 다른 기기로 옮기려면 아래에서 파일로 내보낸 뒤, 그 기기에서 가져오기를 눌러 주세요.</p>
           <div class="data-btns">
             <button type="button" class="btn btn-ghost" id="btnExport">⬇️ 파일로 내보내기</button>
             <button type="button" class="btn btn-ghost" id="btnImport">⬆️ 파일 가져오기</button>
@@ -2207,6 +2564,8 @@
         </div>`,
       submitLabel: '저장',
       onMount: (root) => {
+        const cloudPanel = root.querySelector('#cloudPanel');
+        if (cloudPanel) renderCloudPanel(cloudPanel);
         root.querySelector('#btnExport').addEventListener('click', exportJson);
         const fileInput = root.querySelector('#fileInput');
         root.querySelector('#btnImport').addEventListener('click', () => fileInput.click());
@@ -2526,6 +2885,8 @@
     }
 
     if (t.id === 'settingsBtn' || t.closest('#settingsBtn')) { openSettings(); return; }
+
+    if (t.id === 'cloudBtn' || t.closest('#cloudBtn')) { onCloudBtnClick(); return; }
 
     if (t.id === 'prevMonth') {
       state.ui.month = shiftMonth(state.ui.month || monthKey(), -1);
