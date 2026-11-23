@@ -243,6 +243,7 @@
   let cloudRetryCount = 0;
 
   const cloudApi = () => window.DashboardSync || null;
+  function cloudDebug(msg) { const b = $('#cloudBtn'); if (b) b.setAttribute('data-cloud-debug', String(msg).slice(0, 220)); }
 
   function cloudPayloadKey(s) {
     try {
@@ -562,6 +563,7 @@
       const localKey = cloudPayloadKey(state);
       const meta = cloudMetaRead();
       const linked = meta.uid === uid && !!meta.key;
+      cloudDebug('branch:' + (!remoteKey ? 'empty' : remoteKey === localKey ? 'same' : linked && localKey !== meta.key ? 'linked-dirty' : linked ? 'linked-pull' : 'ask') + ' linked:' + linked + ' metaUid:' + (meta.uid ? 'y' : 'n'));
       if (!remoteKey) {
         /* 클라우드가 비어 있다 → 이 기기 내용 올리기 */
         await S.write(state);
@@ -589,6 +591,7 @@
       } else {
         /* 처음 연결하는 기기 → 어느 쪽으로 맞출지 물어보기 */
         const pick = await cloudAskDirection();
+        cloudDebug('picked:' + pick);
         if (pick === 'local') {
           await S.write(state);
           lastPushedJson = localKey;
@@ -607,6 +610,7 @@
     } catch (err) {
       CLOUD.error = (err && err.code) || 'error';
       CLOUD.status = CLOUD.error === 'permission-denied' ? 'denied' : 'offline';
+      cloudDebug('err:' + CLOUD.error + ':' + String((err && err.message) || '').slice(0, 120));
       if (CLOUD.error === 'permission-denied') toast('이 Google 계정으로는 동기화할 수 없어요.');
       else scheduleCloudRetry();
       console.warn(err);
