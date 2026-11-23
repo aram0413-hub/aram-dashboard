@@ -244,7 +244,6 @@
   let cloudRetryCount = 0;
 
   const cloudApi = () => window.DashboardSync || null;
-  function cloudDebug(msg) { const b = $('#cloudBtn'); if (b) b.setAttribute('data-cloud-debug', String(msg).slice(0, 220)); }
 
   function cloudPayloadKey(s) {
     try {
@@ -473,7 +472,9 @@
     const o = opts || {};
     CLOUD.applying = true;
     backupLocalState();
+    const localUi = { ...state.ui };
     const next = mergeState(remote);
+    next.ui = localUi;
     next.updatedAt = at || new Date().toISOString();
     state = next;
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (err) { console.warn(err); }
@@ -501,7 +502,7 @@
     if (!item) return;
     if (cloudIsTyping()) { pendingRemoteTimer = setTimeout(cloudDrainRemote, 3000); return; }
     pendingRemote = null;
-    const remoteKey = cloudPayloadKey(item.state);
+    const remoteKey = cloudPayloadKey(mergeState(item.state));
     const localKey = cloudPayloadKey(state);
     if (remoteKey === localKey) return;
     if (lastPushedJson && localKey !== lastPushedJson) { cloudSchedulePush(); return; }
@@ -513,7 +514,9 @@
     if (!data || !data.state || !data.updatedAt) return;
     if (meta && meta.pending) return;
     if (CLOUD.applying) return;
-    const remoteKey = cloudPayloadKey(data.state);
+    let remoteState = null;
+    try { remoteState = mergeState(data.state); } catch (err) { return; }
+    const remoteKey = cloudPayloadKey(remoteState);
     const localKey = cloudPayloadKey(state);
     if (remoteKey === localKey) return;
     /* 이 기기에서 아직 올리지 않은 수정이 있으면 그쪽을 올린다 */
@@ -570,11 +573,10 @@
     const uid = CLOUD.user.uid;
     try {
       const remote = await S.read();
-      const remoteKey = (remote && remote.state) ? cloudPayloadKey(remote.state) : '';
+      const remoteKey = (remote && remote.state) ? cloudPayloadKey(mergeState(remote.state)) : '';
       const localKey = cloudPayloadKey(state);
       const meta = cloudMetaRead();
       const linked = meta.uid === uid && !!meta.key;
-      cloudDebug('branch:' + (!remoteKey ? 'empty' : remoteKey === localKey ? 'same' : linked && localKey !== meta.key ? 'linked-dirty' : linked ? 'linked-pull' : 'ask') + ' linked:' + linked + ' metaUid:' + (meta.uid ? 'y' : 'n'));
       if (!remoteKey) {
         /* 클라우드가 비어 있다 → 이 기기 내용 올리기 */
         await S.write(state);
@@ -602,7 +604,6 @@
       } else {
         /* 처음 연결하는 기기 → 어느 쪽으로 맞출지 물어보기 */
         const pick = await cloudAskDirection();
-        cloudDebug('picked:' + pick);
         if (pick === 'local') {
           await S.write(state);
           lastPushedJson = localKey;
@@ -621,7 +622,6 @@
     } catch (err) {
       CLOUD.error = (err && err.code) || 'error';
       CLOUD.status = CLOUD.error === 'permission-denied' ? 'denied' : 'offline';
-      cloudDebug('err:' + CLOUD.error + ':' + String((err && err.message) || '').slice(0, 120));
       if (CLOUD.error === 'permission-denied') toast('이 Google 계정으로는 동기화할 수 없어요.');
       else scheduleCloudRetry();
       console.warn(err);
