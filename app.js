@@ -256,6 +256,13 @@
     }
   }
 
+  /* 이 기기·클라우드 내용을 같은 규칙으로 정규화한 뒤 비교한다 */
+  function cloudKeyOf(s) {
+    let norm = s;
+    try { norm = mergeState(s); } catch (err) { /* 원본 사용 */ }
+    return cloudPayloadKey(norm);
+  }
+
   function backupLocalState() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -433,7 +440,7 @@
     const o = opts || {};
     if (!S || !CLOUD.user || CLOUD.applying) return;
     if (CLOUD.pushing) { CLOUD.pending = true; return; }
-    const key = cloudPayloadKey(state);
+    const key = cloudKeyOf(state);
     if (!o.force && key === lastPushedJson) {
       CLOUD.status = 'synced';
       renderCloudUi();
@@ -485,7 +492,7 @@
     CLOUD.applying = false;
     CLOUD.status = 'synced';
     CLOUD.lastSync = new Date();
-    lastPushedJson = cloudPayloadKey(state);
+    lastPushedJson = cloudKeyOf(state);
     if (CLOUD.user) cloudMetaWrite(CLOUD.user.uid, lastPushedJson);
     renderCloudUi();
     if (!o.silent) toast('☁️ 클라우드 내용으로 맞췄어요. (이전 내용은 백업해 뒀어요)');
@@ -502,8 +509,8 @@
     if (!item) return;
     if (cloudIsTyping()) { pendingRemoteTimer = setTimeout(cloudDrainRemote, 3000); return; }
     pendingRemote = null;
-    const remoteKey = cloudPayloadKey(mergeState(item.state));
-    const localKey = cloudPayloadKey(state);
+    const remoteKey = cloudKeyOf(item.state);
+    const localKey = cloudKeyOf(state);
     if (remoteKey === localKey) return;
     if (lastPushedJson && localKey !== lastPushedJson) { cloudSchedulePush(); return; }
     applyRemoteState(item.state, item.updatedAt, { silent: true });
@@ -514,10 +521,8 @@
     if (!data || !data.state || !data.updatedAt) return;
     if (meta && meta.pending) return;
     if (CLOUD.applying) return;
-    let remoteState = null;
-    try { remoteState = mergeState(data.state); } catch (err) { return; }
-    const remoteKey = cloudPayloadKey(remoteState);
-    const localKey = cloudPayloadKey(state);
+    const remoteKey = cloudKeyOf(data.state);
+    const localKey = cloudKeyOf(state);
     if (remoteKey === localKey) return;
     /* 이 기기에서 아직 올리지 않은 수정이 있으면 그쪽을 올린다 */
     if (lastPushedJson && localKey !== lastPushedJson) { cloudSchedulePush(); return; }
@@ -573,8 +578,8 @@
     const uid = CLOUD.user.uid;
     try {
       const remote = await S.read();
-      const remoteKey = (remote && remote.state) ? cloudPayloadKey(mergeState(remote.state)) : '';
-      const localKey = cloudPayloadKey(state);
+      const remoteKey = (remote && remote.state) ? cloudKeyOf(remote.state) : '';
+      const localKey = cloudKeyOf(state);
       const meta = cloudMetaRead();
       const linked = meta.uid === uid && !!meta.key;
       if (!remoteKey) {
