@@ -239,6 +239,8 @@
   let lastPushedJson = '';
   let pendingRemote = null;
   let pendingRemoteTimer = null;
+  let cloudRetryTimer = null;
+  let cloudRetryCount = 0;
 
   const cloudApi = () => window.DashboardSync || null;
 
@@ -439,6 +441,10 @@
     } catch (err) {
       CLOUD.error = (err && err.code) || 'error';
       CLOUD.status = CLOUD.error === 'permission-denied' ? 'denied' : 'offline';
+      if (CLOUD.error !== 'permission-denied') {
+        clearTimeout(cloudPushTimer);
+        cloudPushTimer = setTimeout(() => { cloudPush({}); }, 8000);
+      }
       console.warn(err);
     } finally {
       CLOUD.pushing = false;
@@ -512,7 +518,8 @@
   /* 처음 연결할 때: 이 기기와 클라우드 내용이 다르면 어느 쪽으로 맞출지 물어본다 */
   function cloudAskDirection() {
     return new Promise((resolve) => {
-      openModal({
+      try {
+        openModal({
         title: '☁️ 클라우드에 저장된 내용이 있어요',
         body: `
           <p class="hint" style="font-size:13px;color:var(--ink-2);line-height:1.7">이 기기 내용과 클라우드 내용이 달라요. 어느 쪽으로 맞출까요?<br>맞추기 전 이 기기 내용은 자동으로 백업해 둬요.</p>
@@ -525,9 +532,22 @@
           const localBtn = root.querySelector('#cloudPickLocal');
           if (localBtn) localBtn.addEventListener('click', () => { closeModal(); resolve('local'); });
         }
-      });
-      modal.addEventListener('close', () => resolve('cloud'), { once: true });
+        });
+        modal.addEventListener('close', () => resolve('cloud'), { once: true });
+      } catch (err) {
+        console.warn(err);
+        resolve('cloud');
+      }
     });
+  }
+
+  function scheduleCloudRetry() {
+    if (!CLOUD.user || cloudRetryCount >= 4) return;
+    clearTimeout(cloudRetryTimer);
+    cloudRetryCount += 1;
+    cloudRetryTimer = setTimeout(() => {
+      if (CLOUD.user) cloudReconcile();
+    }, 5000 * cloudRetryCount);
   }
 
   async function cloudReconcile() {
@@ -582,10 +602,13 @@
         }
       }
       S.watch(cloudOnRemote);
+      cloudRetryCount = 0;
+      clearTimeout(cloudRetryTimer);
     } catch (err) {
       CLOUD.error = (err && err.code) || 'error';
       CLOUD.status = CLOUD.error === 'permission-denied' ? 'denied' : 'offline';
       if (CLOUD.error === 'permission-denied') toast('이 Google 계정으로는 동기화할 수 없어요.');
+      else scheduleCloudRetry();
       console.warn(err);
     }
     renderCloudUi();
@@ -615,6 +638,11 @@
   }
 
   window.addEventListener('dashboard-cloud-ready', cloudBoot);
+  window.addEventListener('online', () => {
+    if (!CLOUD.user) return;
+    cloudRetryCount = 0;
+    cloudReconcile();
+  });
   window.addEventListener('dashboard-cloud-failed', (e) => {
     CLOUD.ready = false;
     CLOUD.error = 'load_failed';
@@ -2333,6 +2361,7 @@
     modalBody.innerHTML = body;
     $('#modalSubmit').textContent = submitLabel;
     modalSubmit = onSubmit;
+    if (modal.open) { try { modal.close(); } catch (err) { /* 무시 */ } }
     if (modal.showModal) { if (!modal.open) modal.showModal(); } else modal.setAttribute('open', '');
     if (onMount) onMount(modalBody);
     const first = modalBody.querySelector('input, textarea, select');
