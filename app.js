@@ -432,6 +432,7 @@
     try {
       await S.write(state);
       lastPushedJson = key;
+      if (CLOUD.user) cloudMetaWrite(CLOUD.user.uid, key);
       CLOUD.error = '';
       CLOUD.status = 'synced';
       CLOUD.lastSync = new Date();
@@ -466,6 +467,7 @@
     CLOUD.status = 'synced';
     CLOUD.lastSync = new Date();
     lastPushedJson = cloudPayloadKey(state);
+    if (CLOUD.user) cloudMetaWrite(CLOUD.user.uid, lastPushedJson);
     renderCloudUi();
     if (!o.silent) toast('☁️ 클라우드 내용으로 맞췄어요. (이전 내용은 백업해 뒀어요)');
   }
@@ -481,8 +483,10 @@
     if (!item) return;
     if (cloudIsTyping()) { pendingRemoteTimer = setTimeout(cloudDrainRemote, 3000); return; }
     pendingRemote = null;
-    const localAt = state.updatedAt ? Date.parse(state.updatedAt) : 0;
-    if ((Date.parse(item.updatedAt) || 0) <= localAt + 800) return;
+    const remoteKey = cloudPayloadKey(item.state);
+    const localKey = cloudPayloadKey(state);
+    if (remoteKey === localKey) return;
+    if (lastPushedJson && localKey !== lastPushedJson) { cloudSchedulePush(); return; }
     applyRemoteState(item.state, item.updatedAt, { silent: true });
     toast('☁️ 다른 기기의 변경을 불러왔어요.');
   }
@@ -491,9 +495,11 @@
     if (!data || !data.state || !data.updatedAt) return;
     if (meta && meta.pending) return;
     if (CLOUD.applying) return;
-    const remoteAt = Date.parse(data.updatedAt) || 0;
-    const localAt = state.updatedAt ? Date.parse(state.updatedAt) : 0;
-    if (remoteAt <= localAt + 800) return;
+    const remoteKey = cloudPayloadKey(data.state);
+    const localKey = cloudPayloadKey(state);
+    if (remoteKey === localKey) return;
+    /* 이 기기에서 아직 올리지 않은 수정이 있으면 그쪽을 올린다 */
+    if (lastPushedJson && localKey !== lastPushedJson) { cloudSchedulePush(); return; }
     pendingRemote = { state: data.state, updatedAt: data.updatedAt };
     if (cloudIsTyping()) {
       clearTimeout(pendingRemoteTimer);
@@ -503,34 +509,77 @@
     cloudDrainRemote();
   }
 
+  /* 처음 연결할 때: 이 기기와 클라우드 내용이 다르면 어느 쪽으로 맞출지 물어본다 */
+  function cloudAskDirection() {
+    return new Promise((resolve) => {
+      openModal({
+        title: '☁️ 클라우드에 저장된 내용이 있어요',
+        body: `
+          <p class="hint" style="font-size:13px;color:var(--ink-2);line-height:1.7">이 기기 내용과 클라우드 내용이 달라요. 어느 쪽으로 맞출까요?<br>맞추기 전 이 기기 내용은 자동으로 백업해 둬요.</p>
+          <div class="data-btns" style="margin-top:4px">
+            <button type="button" class="btn btn-ghost" id="cloudPickLocal">⬆️ 이 기기 내용 올리기</button>
+          </div>`,
+        submitLabel: '⬇️ 클라우드 내용으로 맞추기',
+        onSubmit: () => resolve('cloud'),
+        onMount: (root) => {
+          const localBtn = root.querySelector('#cloudPickLocal');
+          if (localBtn) localBtn.addEventListener('click', () => { closeModal(); resolve('local'); });
+        }
+      });
+      modal.addEventListener('close', () => resolve('cloud'), { once: true });
+    });
+  }
+
   async function cloudReconcile() {
     const S = cloudApi();
     if (!S || !CLOUD.user) return;
     CLOUD.status = 'saving';
     renderCloudUi();
+    const uid = CLOUD.user.uid;
     try {
       const remote = await S.read();
-      const remoteAt = remote && remote.updatedAt ? Date.parse(remote.updatedAt) : 0;
-      const localAt = state.updatedAt ? Date.parse(state.updatedAt) : 0;
-      if (!remote || !remote.state) {
+      const remoteKey = (remote && remote.state) ? cloudPayloadKey(remote.state) : '';
+      const localKey = cloudPayloadKey(state);
+      const meta = cloudMetaRead();
+      const linked = meta.uid === uid && !!meta.key;
+      if (!remoteKey) {
+        /* 클라우드가 비어 있다 → 이 기기 내용 올리기 */
         await S.write(state);
-        lastPushedJson = cloudPayloadKey(state);
+        lastPushedJson = localKey;
+        cloudMetaWrite(uid, localKey);
         CLOUD.status = 'synced';
         CLOUD.lastSync = new Date();
         toast('☁️ 이 기기 내용을 클라우드에 올렸어요.');
-      } else if (remoteAt > localAt + 1000) {
+      } else if (remoteKey === localKey) {
+        lastPushedJson = localKey;
+        cloudMetaWrite(uid, localKey);
+        CLOUD.status = 'synced';
+        CLOUD.lastSync = new Date();
+      } else if (linked && localKey !== meta.key) {
+        /* 이미 연결된 기기인데 마지막 저장 이후 이 기기에서 바뀐 내용이 있다 → 올리기 */
+        await S.write(state);
+        lastPushedJson = localKey;
+        cloudMetaWrite(uid, localKey);
+        CLOUD.status = 'synced';
+        CLOUD.lastSync = new Date();
+      } else if (linked) {
+        /* 연결된 기기이고 이 기기에서 바뀐 것이 없다 → 클라우드 내용으로 맞추기 */
+        lastPushedJson = remoteKey;
         applyRemoteState(remote.state, remote.updatedAt, { silent: true });
-        toast('☁️ 클라우드 내용으로 맞췄어요. (이전 내용은 백업해 뒀어요)');
-      } else if (localAt > remoteAt + 1000) {
-        await S.write(state);
-        lastPushedJson = cloudPayloadKey(state);
-        CLOUD.status = 'synced';
-        CLOUD.lastSync = new Date();
-        toast('☁️ 이 기기 내용을 클라우드에 올렸어요.');
       } else {
-        lastPushedJson = cloudPayloadKey(state);
-        CLOUD.status = 'synced';
-        CLOUD.lastSync = new Date();
+        /* 처음 연결하는 기기 → 어느 쪽으로 맞출지 물어보기 */
+        const pick = await cloudAskDirection();
+        if (pick === 'local') {
+          await S.write(state);
+          lastPushedJson = localKey;
+          cloudMetaWrite(uid, localKey);
+          CLOUD.status = 'synced';
+          CLOUD.lastSync = new Date();
+          toast('☁️ 이 기기 내용을 클라우드에 올렸어요.');
+        } else {
+          lastPushedJson = remoteKey;
+          applyRemoteState(remote.state, remote.updatedAt, { silent: false });
+        }
       }
       S.watch(cloudOnRemote);
     } catch (err) {
