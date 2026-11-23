@@ -2628,7 +2628,7 @@
               <input type="text" id="s-c3" value="${escapeHtml(kidName('c3'))}" placeholder="${escapeHtml(d.kidsLabels.c3)}" maxlength="10">
             </div>
           </div>
-          <p class="hint">바꾼 이름은 상단 탭과 화면 제목에 바로 반영되고, 이 기기에만 저장돼요. (인터넷에 올라가지 않아요)</p>
+          <p class="hint">바꾼 이름은 상단 탭과 화면 제목에 바로 반영돼요. 로그인하지 않으면 이 기기에만, 로그인하면 클라우드에도 함께 저장돼요.</p>
         </div>
 
         <div class="settings-block">
