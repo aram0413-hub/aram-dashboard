@@ -524,6 +524,16 @@
     const remoteKey = cloudKeyOf(data.state);
     const localKey = cloudKeyOf(state);
     if (remoteKey === localKey) return;
+    try {
+      const a = mergeState(data.state); const b = mergeState(state);
+      const diff = [];
+      Object.keys(a).forEach((k) => {
+        if (JSON.stringify(a[k]) !== JSON.stringify(b[k]) && diff.length < 4) {
+          diff.push(k + ' RE:' + JSON.stringify(a[k]).slice(0, 160) + ' | LO:' + JSON.stringify(b[k]).slice(0, 160));
+        }
+      });
+      const el = $('#cloudBtn'); if (el) el.setAttribute('data-cloud-diff', diff.join(' ## ').slice(0, 900));
+    } catch (err) { /* 무시 */ }
     /* 이 기기에서 아직 올리지 않은 수정이 있으면 그쪽을 올린다 */
     if (lastPushedJson && localKey !== lastPushedJson) { cloudSchedulePush(); return; }
     pendingRemote = { state: data.state, updatedAt: data.updatedAt };
