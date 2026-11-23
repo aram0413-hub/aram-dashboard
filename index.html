@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Jua&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=19">
+<link rel="stylesheet" href="style.css?v=20">
 </head>
 <body>
 <div class="blobs" aria-hidden="true">
@@ -25,7 +25,9 @@
       <span class="brand-mark" aria-hidden="true">🌷</span>
       <span class="brand-text">우리집 대시보드</span>
     </div>
-    <button class="icon-btn" id="settingsBtn" type="button" aria-label="설정 열기" title="설정">⚙️</button>
+    <button class="icon-btn settings-btn" id="settingsBtn" type="button" aria-label="설정 열기" title="이름표·시간·백업 설정">
+      <span aria-hidden="true">⚙️</span><span class="settings-btn-label">설정</span>
+    </button>
   </div>
 
   <div class="wrap clock-row">
@@ -214,7 +216,7 @@
 </main>
 
 <footer class="app-foot">
-  <span>입력한 내용은 이 기기 브라우저에 자동 저장돼요 · ⚙️ 에서 백업/복원</span>
+  <span>입력한 내용은 이 기기 브라우저에 자동 저장돼요 · ⚙️ 설정에서 이름·시간 바꾸기, 백업/복원</span>
 </footer>
 
 <!-- ===== 공통 모달 ===== -->
@@ -234,6 +236,6 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="app.js?v=19"></script>
+<script src="app.js?v=20"></script>
 </body>
 </html>

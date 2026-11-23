@@ -32,14 +32,20 @@
   const fmtNum = (n) => (Number(n) || 0).toLocaleString('ko-KR');
 
   /* ---------- 기본 데이터 ---------- */
+  /* 설정 기본값 (⚙️ 설정 > 기본값으로 되돌리기의 기준) */
+  const DEFAULT_SETTINGS = () => ({
+    appName: '우리집 대시보드',
+    bizName: '에이치엠유통',
+    moneyLabel: '집 가계부',
+    departTime: '08:50',
+    goalLabel: '출발',
+    kidsLabels: { c5: '초5', c3: '초3' }
+  });
+
   const defaultState = () => ({
     version: 1,
     updatedAt: null,
-    settings: {
-      departTime: '08:50',
-      goalLabel: '출발',
-      kidsLabels: { c5: '초5', c3: '초3' }
-    },
+    settings: DEFAULT_SETTINGS(),
     kids: {
       c5: {
         avatar: '🧒',
@@ -236,6 +242,15 @@
   }
 
   const kidName = (k) => state.settings.kidsLabels[k] || (k === 'c5' ? '초5' : '초3');
+
+  /* 설정값 (비어 있으면 기본값 사용) */
+  const settingText = (key, fallback) => {
+    const v = state.settings[key];
+    return (typeof v === 'string' && v.trim()) ? v.trim() : fallback;
+  };
+  const appName = () => settingText('appName', '우리집 대시보드');
+  const companyName = () => settingText('bizName', '에이치엠유통');
+  const ledgerLabel = () => settingText('moneyLabel', '집 가계부');
 
   const isDoneToday = (item) => !!item.done && item.doneDate === todayISO();
 
@@ -434,7 +449,7 @@
 
     // 사업 요약
     renderTodoSummary($('#homeBiz'), state.biz.todos, '할 일을 추가해 보세요');
-    $('#home-biz-h').textContent = '📦 에이치엠유통';
+    $('#home-biz-h').textContent = '📦 ' + companyName();
 
     // 가계부 요약
     const m = monthKey();
@@ -906,10 +921,12 @@
     const [y, mm] = m.split('-');
     const t = fxTotals(scope, m);
 
+    const scopeLabel = scope === 'biz' ? companyName() : meta.label;
+
     el.innerHTML = `<div class="card fixed-card" id="fx-${scope}" data-scope="${scope}">
       <header class="fixed-head">
         <div class="fixed-title">
-          <h3>${meta.icon} ${meta.label} 고정지출</h3>
+          <h3>${meta.icon} ${escapeHtml(scopeLabel)} 고정지출</h3>
           <span class="fx-month">${y}년 ${Number(mm)}월</span>
         </div>
         <div class="fixed-tools">
@@ -998,8 +1015,9 @@
         ? (t.diff === 0 ? '예상과 같음' : (t.diff < 0 ? won(-t.diff) + ' 절약' : won(t.diff) + ' 초과'))
         : '입력 전';
       const diffCls = entered ? (t.diff < 0 ? 'save' : t.diff > 0 ? 'over' : 'same') : 'wait';
-      return `<button type="button" class="fx-mini" data-goto="${meta.tab}" aria-label="${meta.label} 고정지출 자세히 보기">
-        <span class="fx-mini-top">${meta.icon} ${meta.label} <span class="pill ${scope === 'biz' ? 'pill-lav' : 'pill-pink'}">${t.count}건</span></span>
+      const scopeLabel = scope === 'biz' ? companyName() : meta.label;
+      return `<button type="button" class="fx-mini" data-goto="${meta.tab}" aria-label="${escapeHtml(scopeLabel)} 고정지출 자세히 보기">
+        <span class="fx-mini-top">${meta.icon} ${escapeHtml(scopeLabel)} <span class="pill ${scope === 'biz' ? 'pill-lav' : 'pill-pink'}">${t.count}건</span></span>
         <b>${won(t.plan)}</b>
         <span class="fx-mini-sub">실제 ${won(t.actual)} · <span class="fx-${diffCls}">${escapeHtml(diffText)}</span></span>
         <span class="fx-mini-sub">${t.pendingCount ? `미입력 ${t.pendingCount}건 · ${won(t.pendingAmount)}` : '모두 입력했어요'}</span>
@@ -1015,7 +1033,7 @@
       body: `
         <div class="field"><label for="f-scope">구분</label>
           <select id="f-scope">
-            <option value="biz" ${cur.scope === 'biz' ? 'selected' : ''}>📦 사업</option>
+            <option value="biz" ${cur.scope === 'biz' ? 'selected' : ''}>📦 ${escapeHtml(companyName())}</option>
             <option value="home" ${cur.scope === 'home' ? 'selected' : ''}>💰 주거</option>
           </select>
         </div>
@@ -1064,7 +1082,7 @@
     const target = ids.filter((id) => (rec.actual[id] !== undefined && rec.actual[id] !== '') || rec.paid[id]).length;
     confirmModal({
       title: '이번 달 초기화',
-      message: `${y}년 ${Number(mm)}월 ${meta.label} 고정지출의 실제 금액과 납부 완료 표시를 지울까요? 예상 금액은 그대로 남아요. (${target}건)`,
+      message: `${y}년 ${Number(mm)}월 ${scope === 'biz' ? companyName() : meta.label} 고정지출의 실제 금액과 납부 완료 표시를 지울까요? 예상 금액은 그대로 남아요. (${target}건)`,
       confirmLabel: '초기화',
       onConfirm: () => {
         ids.forEach((id) => { delete rec.actual[id]; delete rec.paid[id]; });
@@ -1542,11 +1560,14 @@
       <button class="btn btn-ghost btn-sm" type="button" data-sales-export>⬇️ 내보내기</button>
       <button class="btn btn-mint btn-sm" type="button" data-sales-add>＋ 월 입력</button>`;
 
+    const bizTitle = `📊 ${escapeHtml(companyName())} 월별 매출·매입 현황`;
+    const bizMeta = [bizName && bizName !== companyName() ? bizName : '', regNo].filter(Boolean).join(' · ');
+
     if (!filled) {
       el.innerHTML = `<div class="card sales-card">
         <header class="fixed-head">
           <div class="fixed-title">
-            <h3>📊 월별 매출·매입 현황</h3>
+            <h3>${bizTitle}</h3>
             ${yearNav}
           </div>
           <div class="fixed-tools">${buttons}</div>
@@ -1572,9 +1593,9 @@
     el.innerHTML = `<div class="card sales-card">
       <header class="fixed-head">
         <div class="fixed-title">
-          <h3>📊 월별 매출·매입 현황</h3>
+          <h3>${bizTitle}</h3>
           ${yearNav}
-          ${bizName ? `<span class="sales-biz">${escapeHtml(bizName)}${regNo ? ' · ' + escapeHtml(regNo) : ''}</span>` : ''}
+          ${bizMeta ? `<span class="sales-biz">${escapeHtml(bizMeta)}</span>` : ''}
         </div>
         <div class="fixed-tools">${buttons}</div>
       </header>
@@ -1853,6 +1874,21 @@
   /* ---------- 탭 전환 ---------- */
   const RENDERERS = { home: renderHome, kids: renderKids, work: renderWorkAll, biz: renderBizAll, money: renderMoney };
 
+  /* 설정한 이름표를 탭·화면 제목·상단 이름에 반영 */
+  function applyLabels() {
+    const setText = (sel, txt) => { const n = $(sel); if (n && n.textContent !== txt) n.textContent = txt; };
+    const biz = companyName();
+    const led = ledgerLabel();
+    setText('#tab-biz', '📦 ' + biz);
+    setText('#tab-money', '💰 ' + led);
+    setText('#panel-biz .panel-title', '📦 ' + biz);
+    setText('#panel-money .panel-title', '💰 ' + led);
+    setText('#home-biz-h', '📦 ' + biz);
+    setText('#home-money-h', '💰 ' + led);
+    setText('.brand-text', appName());
+    if (document.title !== appName()) document.title = appName();
+  }
+
   function showTab(tab, opts) {
     if (!RENDERERS[tab]) tab = 'home';
     state.ui.tab = tab;
@@ -1877,6 +1913,7 @@
 
   function renderAll() {
     renderClock();
+    applyLabels();
     renderHome();
     renderKids();
     renderWorkAll();
@@ -1995,7 +2032,7 @@
   /* ---------- 업무/사업 CRUD ---------- */
   function openTodoModal({ key, todo, when }) {
     const isEdit = !!todo;
-    const label = key === 'biz' ? '에이치엠유통' : '내 업무';
+    const label = key === 'biz' ? companyName() : '내 업무';
     openModal({
       title: (isEdit ? '할 일 수정' : '할 일 추가') + ' · ' + label,
       body: `
@@ -2111,22 +2148,52 @@
 
   /* ---------- 설정 ---------- */
   function openSettings() {
+    const d = DEFAULT_SETTINGS();
     openModal({
       title: '⚙️ 설정',
       body: `
-        <div class="field"><label for="s-depart">출발 시간</label>
-          <input type="time" id="s-depart" value="${escapeHtml(state.settings.departTime)}">
+        <div class="settings-block">
+          <h3>🏷️ 화면에 보이는 이름</h3>
+          <div class="field"><label for="s-app">대시보드 이름</label>
+            <input type="text" id="s-app" value="${escapeHtml(appName())}" placeholder="${escapeHtml(d.appName)}" maxlength="20">
+          </div>
+          <div class="field"><label for="s-biz">회사(사업) 이름</label>
+            <input type="text" id="s-biz" value="${escapeHtml(companyName())}" placeholder="${escapeHtml(d.bizName)}" maxlength="16">
+          </div>
+          <div class="field"><label for="s-money">가계부 탭 이름</label>
+            <input type="text" id="s-money" value="${escapeHtml(ledgerLabel())}" placeholder="${escapeHtml(d.moneyLabel)}" maxlength="16">
+          </div>
+          <div class="field-pair">
+            <div class="field"><label for="s-c5">아이 1 이름표</label>
+              <input type="text" id="s-c5" value="${escapeHtml(kidName('c5'))}" placeholder="${escapeHtml(d.kidsLabels.c5)}" maxlength="10">
+            </div>
+            <div class="field"><label for="s-c3">아이 2 이름표</label>
+              <input type="text" id="s-c3" value="${escapeHtml(kidName('c3'))}" placeholder="${escapeHtml(d.kidsLabels.c3)}" maxlength="10">
+            </div>
+          </div>
+          <p class="hint">바꾼 이름은 상단 탭과 화면 제목에 바로 반영되고, 이 기기에만 저장돼요. (인터넷에 올라가지 않아요)</p>
         </div>
-        <div class="field"><label for="s-goal">카운트다운 이름</label>
-          <input type="text" id="s-goal" value="${escapeHtml(state.settings.goalLabel)}" placeholder="출발" maxlength="12">
+
+        <div class="settings-block">
+          <h3>⏰ 출발 카운트다운</h3>
+          <div class="field-pair">
+            <div class="field"><label for="s-depart">출발 시간</label>
+              <input type="time" id="s-depart" value="${escapeHtml(state.settings.departTime || d.departTime)}">
+            </div>
+            <div class="field"><label for="s-goal">카운트다운 이름</label>
+              <input type="text" id="s-goal" value="${escapeHtml(state.settings.goalLabel || d.goalLabel)}" placeholder="${escapeHtml(d.goalLabel)}" maxlength="12">
+            </div>
+          </div>
+          <p class="hint">홈 위쪽 카운트다운이 이 시간까지 남은 시간을 보여줘요.</p>
         </div>
-        <div class="field"><label for="s-c5">아이 1 이름표</label>
-          <input type="text" id="s-c5" value="${escapeHtml(kidName('c5'))}" maxlength="10">
+
+        <div class="settings-block">
+          <h3>↩️ 설정만 기본값으로</h3>
+          <p class="hint">이름표·시간을 처음 값으로 되돌려요. 아이들 루틴·업무·가계부·매출 기록은 그대로 남아요.</p>
+          <div class="data-btns">
+            <button type="button" class="btn btn-ghost" id="btnResetSettings">↩️ 설정 기본값으로</button>
+          </div>
         </div>
-        <div class="field"><label for="s-c3">아이 2 이름표</label>
-          <input type="text" id="s-c3" value="${escapeHtml(kidName('c3'))}" maxlength="10">
-        </div>
-        <p class="hint">이름표는 이 기기에만 저장돼요. (인터넷에 올라가지 않아요)</p>
 
         <div class="settings-block">
           <h3>📦 데이터 백업 / 복원</h3>
@@ -2134,7 +2201,7 @@
           <div class="data-btns">
             <button type="button" class="btn btn-ghost" id="btnExport">⬇️ 파일로 내보내기</button>
             <button type="button" class="btn btn-ghost" id="btnImport">⬆️ 파일 가져오기</button>
-            <button type="button" class="btn btn-danger" id="btnReset">초기화</button>
+            <button type="button" class="btn btn-danger" id="btnReset">전체 초기화</button>
           </div>
           <input type="file" id="fileInput" accept="application/json,.json" class="file-input">
         </div>`,
@@ -2144,6 +2211,16 @@
         const fileInput = root.querySelector('#fileInput');
         root.querySelector('#btnImport').addEventListener('click', () => fileInput.click());
         fileInput.addEventListener('change', () => importJson(fileInput));
+        root.querySelector('#btnResetSettings').addEventListener('click', () => {
+          if (!window.confirm('이름표와 시간 설정을 처음 값으로 돌릴까요? 저장된 기록은 그대로 남아요.')) return;
+          state.settings = DEFAULT_SETTINGS();
+          save();
+          applyLabels();
+          renderAll();
+          const now = { 's-app': appName(), 's-biz': companyName(), 's-money': ledgerLabel(), 's-c5': kidName('c5'), 's-c3': kidName('c3'), 's-depart': state.settings.departTime, 's-goal': state.settings.goalLabel };
+          Object.entries(now).forEach(([id, v]) => { const el = root.querySelector('#' + id); if (el) el.value = v; });
+          toast('설정을 기본값으로 되돌렸어요.');
+        });
         root.querySelector('#btnReset').addEventListener('click', () => {
           if (!window.confirm('모든 입력 내용을 지우고 처음 상태로 돌아갈까요? (되돌릴 수 없어요)')) return;
           localStorage.removeItem(STORAGE_KEY);
@@ -2156,12 +2233,17 @@
         });
       },
       onSubmit: (root) => {
-        const t = root.querySelector('#s-depart').value || '08:50';
-        const goal = root.querySelector('#s-goal').value.trim() || '출발';
-        const c5 = root.querySelector('#s-c5').value.trim() || '초5';
-        const c3 = root.querySelector('#s-c3').value.trim() || '초3';
-        Object.assign(state.settings, { departTime: t, goalLabel: goal, kidsLabels: { c5, c3 } });
-        save(); renderAll();
+        const t = root.querySelector('#s-depart').value || d.departTime;
+        const goal = root.querySelector('#s-goal').value.trim() || d.goalLabel;
+        const c5 = root.querySelector('#s-c5').value.trim() || d.kidsLabels.c5;
+        const c3 = root.querySelector('#s-c3').value.trim() || d.kidsLabels.c3;
+        const app = root.querySelector('#s-app').value.trim().slice(0, 20) || d.appName;
+        const biz = root.querySelector('#s-biz').value.trim().slice(0, 16) || d.bizName;
+        const led = root.querySelector('#s-money').value.trim().slice(0, 16) || d.moneyLabel;
+        Object.assign(state.settings, { appName: app, bizName: biz, moneyLabel: led, departTime: t, goalLabel: goal, kidsLabels: { c5, c3 } });
+        save();
+        applyLabels();
+        renderAll();
         toast('설정을 저장했어요.');
       }
     });
@@ -2173,7 +2255,7 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `우리집-대시보드-백업-${todayISO()}.json`;
+    a.download = `${appName().replace(/\s+/g, '-')}-백업-${todayISO()}.json`;
     document.body.appendChild(a);
     a.click();
     a.remove();
