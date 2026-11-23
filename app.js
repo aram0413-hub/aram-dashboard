@@ -324,6 +324,8 @@
         dot.className = 'cloud-dot is-' + cloudDotState();
       }
       if (label) label.textContent = cloudBtnLabel();
+      const ico = btn.querySelector('.cloud-ico');
+      if (ico) ico.textContent = (CLOUD.user ? '☁️' : '🔐');
       btn.classList.toggle('is-signed-in', !!CLOUD.user);
       btn.setAttribute('title', CLOUD.user
         ? `${CLOUD.user.displayName || '로그인됨'} · ${cloudStatusLabel()}`
