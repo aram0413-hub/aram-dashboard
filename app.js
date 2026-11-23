@@ -245,12 +245,19 @@
 
   const cloudApi = () => window.DashboardSync || null;
 
+  /* 키 순서에 흔들리지 않는 비교용 문자열 */
+  function stableStringify(v) {
+    if (v === null || typeof v !== 'object') return JSON.stringify(v === undefined ? null : v);
+    if (Array.isArray(v)) return '[' + v.map(stableStringify).join(',') + ']';
+    return '{' + Object.keys(v).sort().map((k) => JSON.stringify(k) + ':' + stableStringify(v[k])).join(',') + '}';
+  }
+
   function cloudPayloadKey(s) {
     try {
       const copy = JSON.parse(JSON.stringify(s));
       delete copy.ui;
       delete copy.updatedAt;
-      return JSON.stringify(copy);
+      return stableStringify(copy);
     } catch (err) {
       return String(Date.now());
     }
@@ -524,16 +531,6 @@
     const remoteKey = cloudKeyOf(data.state);
     const localKey = cloudKeyOf(state);
     if (remoteKey === localKey) return;
-    try {
-      const a = mergeState(data.state); const b = mergeState(state);
-      const diff = [];
-      Object.keys(a).forEach((k) => {
-        if (JSON.stringify(a[k]) !== JSON.stringify(b[k]) && diff.length < 4) {
-          diff.push(k + ' RE:' + JSON.stringify(a[k]).slice(0, 160) + ' | LO:' + JSON.stringify(b[k]).slice(0, 160));
-        }
-      });
-      const el = $('#cloudBtn'); if (el) el.setAttribute('data-cloud-diff', diff.join(' ## ').slice(0, 900));
-    } catch (err) { /* 무시 */ }
     /* 이 기기에서 아직 올리지 않은 수정이 있으면 그쪽을 올린다 */
     if (lastPushedJson && localKey !== lastPushedJson) { cloudSchedulePush(); return; }
     pendingRemote = { state: data.state, updatedAt: data.updatedAt };
